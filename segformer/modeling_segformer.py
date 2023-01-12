@@ -331,7 +331,7 @@ class SegformerLayer(nn.Module):
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
-    def forward(self, hidden_states, height, width, output_attentions=False):
+    def forward(self, hidden_states, height, width, output_attentions=True):
         self_attention_outputs = self.attention(
             self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
             height,
@@ -413,22 +413,28 @@ class SegformerEncoder(nn.Module):
         output_hidden_states: Optional[bool] = False,
         return_dict: Optional[bool] = True,
     ) -> Union[Tuple, BaseModelOutput]:
+        output_attentions = True
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
 
         batch_size = pixel_values.shape[0]
-
+        
+        img_shape_list = [] #skip attention
+        
         hidden_states = pixel_values
         for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
             embedding_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            img_shape_list.append((height,width))
             # second, send embeddings through blocks
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(hidden_states, height, width, output_attentions)
                 hidden_states = layer_outputs[0]
                 if output_attentions:
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
+
+            #attentions.append(all_self_attentions[0].clone().detach()) #skip attention
             # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
             # fourth, optionally reshape back to (batch_size, num_channels, height, width)
@@ -436,8 +442,31 @@ class SegformerEncoder(nn.Module):
                 idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
             ):
                 hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
+                
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
+        
+        
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        layer_num = [0,3,7,13] #각 레이어의 multi head attention 중 첫번째 헤드들
+        #heads = list(all_self_attentions)(layer_num)
+        
+        #plot attention 
+        img_fix_list = [(128,128),(64,64),(32,32),(16,16)]
+        for layer_idx, i in enumerate(layer_num):
+            item = all_self_attentions[i]
+            tmp = item.clone().detach()
+            tmp = tmp[0,0,:,199]
+            tmp = tmp.reshape(img_fix_list[layer_idx])
+            ax = sns.heatmap(tmp.cpu().numpy(), linewidths=0.5)
+            plt.savefig('layer' + str(layer_idx) + '_200.png')
+            plt.clf()
+        
+        for item in all_self_attentions:
+            print(item.size())
+        print('checking')
+
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
