@@ -12,6 +12,7 @@ from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
 from segformer import SegformerForSemanticSegmentation, SegformerConfig
+from segformer import SegNext
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 

@@ -8,6 +8,8 @@ import torch
 import argparse
 from thop import profile
 from segformer import SegformerForSemanticSegmentation, SegformerConfig
+from segformer.modeling_segnext import SegNextForSemanticSegmentation
+from segformer.configuration_segnext import SegNextConfig
 
 
 def main(opt):
@@ -18,8 +20,16 @@ def main(opt):
     label2id = {v: k for k, v in id2label.items()}
 
     ### from scratch training
-    model = SegformerForSemanticSegmentation(
-        SegformerConfig(
+    # model = SegformerForSemanticSegmentation(
+    #     SegformerConfig(
+    #         num_labels=len(id2label),
+    #         id2label=id2label,
+    #         label2id=label2id,
+    #         ignore_mismatched_sizes=True,
+    #     )
+    # )
+    model = SegNextForSemanticSegmentation(
+        SegNextConfig(
             num_labels=len(id2label),
             id2label=id2label,
             label2id=label2id,
