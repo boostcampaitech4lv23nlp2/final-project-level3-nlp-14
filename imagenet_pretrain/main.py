@@ -20,7 +20,8 @@ from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
 
 sys.path.append("/opt/ml/final-project-level3-nlp-14/")
-# from segformer import SegformerForImageClassification, SegformerConfig
+from segformer import SegformerForImageClassification, SegformerConfig
+
 from segformer.modeling_segnext import SegNextForImageClassification
 from segformer.configuration_segnext import SegNextConfig
 from datasets import build_dataset

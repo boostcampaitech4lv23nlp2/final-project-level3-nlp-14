@@ -12,7 +12,8 @@ from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
 from segformer import SegformerForSemanticSegmentation, SegformerConfig
-from segformer import SegNext
+from segformer.modeling_segnext import SegNextForSemanticSegmentation
+from segformer.configuration_segnext import SegNextConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 
@@ -99,9 +100,18 @@ def main(opt):
         pt = torch.load(opt.pretrain, map_location="cpu")
         dst = opt.pretrain.replace(".pth", "_state_dict.pth")
         torch.save(pt["model"], dst)
-        model = SegformerForSemanticSegmentation.from_pretrained(
+        # model = SegformerForSemanticSegmentation.from_pretrained(
+        #     dst,
+        #     config=SegformerConfig(
+        #         num_labels=len(id2label),
+        #         id2label=id2label,
+        #         label2id=label2id,
+        #         ignore_mismatched_sizes=True,
+        #     ),
+        # )
+        model = SegNextForSemanticSegmentation.from_pretrained(
             dst,
-            config=SegformerConfig(
+            config=SegNextConfig(
                 num_labels=len(id2label),
                 id2label=id2label,
                 label2id=label2id,

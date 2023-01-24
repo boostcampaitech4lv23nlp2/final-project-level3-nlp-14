@@ -1,297 +1,310 @@
-# Copyright (c) OpenMMLab. All rights reserved.
-from abc import ABCMeta, abstractmethod
-
-import torch
-import torch.nn as nn
+from torch.nn.modules.batchnorm import _BatchNorm
+from torch.nn.parallel._functions import ReduceAddCoalesced, Broadcast
 import torch.nn.functional as F
-import warnings
-from mmcv.runner import BaseModule, auto_fp16, force_fp32
 
-# from mmseg.core import build_pixel_sampler
+import queue
+import collections
+import threading
 
-# from ..builder import build_loss
-# from ..losses import accuracy
-
-# def build_pixel_sampler(cfg, **default_args):
-#     """Build pixel sampler for segmentation map."""
-#     return build_from_cfg(cfg, PIXEL_SAMPLERS, default_args)
+__all__ = ["FutureResult", "SlavePipe", "SyncMaster"]
 
 
-def resize(
-    input,
-    size=None,
-    scale_factor=None,
-    mode="nearest",
-    align_corners=None,
-    warning=True,
-):
-    if warning:
-        if size is not None and align_corners:
-            input_h, input_w = tuple(int(x) for x in input.shape[2:])
-            output_h, output_w = tuple(int(x) for x in size)
-            if output_h > input_h or output_w > input_w:
-                if (
-                    (output_h > 1 and output_w > 1 and input_h > 1 and input_w > 1)
-                    and (output_h - 1) % (input_h - 1)
-                    and (output_w - 1) % (input_w - 1)
-                ):
-                    warnings.warn(
-                        f"When align_corners={align_corners}, "
-                        "the output would more aligned if "
-                        f"input size {(input_h, input_w)} is `x+1` and "
-                        f"out size {(output_h, output_w)} is `nx+1`"
-                    )
-    return F.interpolate(input, size, scale_factor, mode, align_corners)
+class FutureResult(object):
+    """A thread-safe future implementation. Used only as one-to-one pipe."""
+
+    def __init__(self):
+        self._result = None
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+
+    def put(self, result):
+        with self._lock:
+            assert self._result is None, "Previous result has't been fetched."
+            self._result = result
+            self._cond.notify()
+
+    def get(self):
+        with self._lock:
+            if self._result is None:
+                self._cond.wait()
+
+            res = self._result
+            self._result = None
+            return res
 
 
-class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
-    """Base class for BaseDecodeHead.
-    Args:
-        in_channels (int|Sequence[int]): Input channels.
-        channels (int): Channels after modules, before conv_seg.
-        num_classes (int): Number of classes.
-        dropout_ratio (float): Ratio of dropout layer. Default: 0.1.
-        conv_cfg (dict|None): Config of conv layers. Default: None.
-        norm_cfg (dict|None): Config of norm layers. Default: None.
-        act_cfg (dict): Config of activation layers.
-            Default: dict(type='ReLU')
-        in_index (int|Sequence[int]): Input feature index. Default: -1
-        input_transform (str|None): Transformation type of input features.
-            Options: 'resize_concat', 'multiple_select', None.
-            'resize_concat': Multiple feature maps will be resize to the
-                same size as first one and than concat together.
-                Usually used in FCN head of HRNet.
-            'multiple_select': Multiple feature maps will be bundle into
-                a list and passed into decode head.
-            None: Only one select feature map is allowed.
-            Default: None.
-        loss_decode (dict | Sequence[dict]): Config of decode loss.
-            The `loss_name` is property of corresponding loss function which
-            could be shown in training log. If you want this loss
-            item to be included into the backward graph, `loss_` must be the
-            prefix of the name. Defaults to 'loss_ce'.
-             e.g. dict(type='CrossEntropyLoss'),
-             [dict(type='CrossEntropyLoss', loss_name='loss_ce'),
-              dict(type='DiceLoss', loss_name='loss_dice')]
-            Default: dict(type='CrossEntropyLoss').
-        ignore_index (int | None): The label index to be ignored. When using
-            masked BCE loss, ignore_index should be set to None. Default: 255.
-        sampler (dict|None): The config of segmentation map sampler.
-            Default: None.
-        align_corners (bool): align_corners argument of F.interpolate.
-            Default: False.
-        init_cfg (dict or list[dict], optional): Initialization config dict.
+_MasterRegistry = collections.namedtuple("MasterRegistry", ["result"])
+_SlavePipeBase = collections.namedtuple(
+    "_SlavePipeBase", ["identifier", "queue", "result"]
+)
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return
+
+
+class SyncMaster(object):
+    """An abstract `SyncMaster` object.
+    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
+    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
+    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
+    and passed to a registered callback.
+    - After receiving the messages, the master device should gather the information and determine to message passed
+    back to each slave devices.
     """
 
-    def __init__(
-        self,
-        in_channels,
-        channels,
-        *,
-        num_classes,
-        dropout_ratio=0.1,
-        conv_cfg=None,
-        norm_cfg=None,
-        act_cfg=dict(type="ReLU"),
-        in_index=-1,
-        input_transform=None,
-        loss_decode=dict(type="CrossEntropyLoss", use_sigmoid=False, loss_weight=1.0),
-        ignore_index=255,
-        sampler=None,
-        align_corners=False,
-        init_cfg=dict(type="Normal", std=0.01, override=dict(name="conv_seg")),
-    ):
-        super(BaseDecodeHead, self).__init__(init_cfg)
-        self._init_inputs(in_channels, in_index, input_transform)
-        self.channels = channels
-        self.num_classes = num_classes
-        self.dropout_ratio = dropout_ratio
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.act_cfg = act_cfg
-        self.in_index = in_index
+    def __init__(self, master_callback):
+        """
+        Args:
+            master_callback: a callback to be invoked after having collected messages from slave devices.
+        """
+        self._master_callback = master_callback
+        self._queue = queue.Queue()
+        self._registry = collections.OrderedDict()
+        self._activated = False
 
-        self.ignore_index = ignore_index
-        self.align_corners = align_corners
+    def register_slave(self, identifier):
+        """
+        Register an slave device.
+        Args:
+            identifier: an identifier, usually is the device id.
+        Returns: a `SlavePipe` object which can be used to communicate with the master device.
+        """
+        if self._activated:
+            assert self._queue.empty(), "Queue is not clean before next initialization."
+            self._activated = False
+            self._registry.clear()
+        future = FutureResult()
+        self._registry[identifier] = _MasterRegistry(future)
+        return SlavePipe(identifier, self._queue, future)
 
-        # if isinstance(loss_decode, dict):
-        #     self.loss_decode = build_loss(loss_decode)
-        # elif isinstance(loss_decode, (list, tuple)):
-        #     self.loss_decode = nn.ModuleList()
-        #     for loss in loss_decode:
-        #         self.loss_decode.append(build_loss(loss))
-        # else:
-        #     raise TypeError(
-        #         f"loss_decode must be a dict or sequence of dict,\
-        #         but got {type(loss_decode)}"
-        #     )
+    def run_master(self, master_msg):
+        """
+        Main entry for the master device in each forward pass.
+        The messages were first collected from each devices (including the master device), and then
+        an callback will be invoked to compute the message to be sent back to each devices
+        (including the master device).
+        Args:
+            master_msg: the message that the master want to send to itself. This will be placed as the first
+            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
+        Returns: the message to be sent back to the master device.
+        """
+        self._activated = True
 
-        # if sampler is not None:
-        #     self.sampler = build_pixel_sampler(sampler, context=self)
-        # else:
-        #     self.sampler = None
+        intermediates = [(0, master_msg)]
+        for i in range(self.nr_slaves):
+            intermediates.append(self._queue.get())
 
-        self.conv_seg = nn.Conv2d(channels, num_classes, kernel_size=1)
-        if dropout_ratio > 0:
-            self.dropout = nn.Dropout2d(dropout_ratio)
-        else:
-            self.dropout = None
-        self.fp16_enabled = False
+        results = self._master_callback(intermediates)
+        assert results[0][0] == 0, "The first result should belongs to the master."
 
-    def extra_repr(self):
-        """Extra repr."""
-        s = (
-            f"input_transform={self.input_transform}, "
-            f"ignore_index={self.ignore_index}, "
-            f"align_corners={self.align_corners}"
+        for i, res in results:
+            if i == 0:
+                continue
+            self._registry[i].result.put(res)
+
+        for i in range(self.nr_slaves):
+            assert self._queue.get() is True
+
+        return results[0][1]
+
+    @property
+    def nr_slaves(self):
+        return len(self._registry)
+
+
+__all__ = [
+    "SynchronizedBatchNorm1d",
+    "SynchronizedBatchNorm2d",
+    "SynchronizedBatchNorm3d",
+]
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+_ChildMessage = collections.namedtuple("_ChildMessage", ["sum", "ssum", "sum_size"])
+_MasterMessage = collections.namedtuple("_MasterMessage", ["sum", "inv_std"])
+
+
+class _SynchronizedBatchNorm(_BatchNorm):
+    def __init__(self, num_features, eps=1e-5, momentum=3e-4, affine=True):
+        super(_SynchronizedBatchNorm, self).__init__(
+            num_features, eps=eps, momentum=momentum, affine=affine
         )
-        return s
 
-    def _init_inputs(self, in_channels, in_index, input_transform):
-        """Check and initialize input transforms.
-        The in_channels, in_index and input_transform must match.
-        Specifically, when input_transform is None, only single feature map
-        will be selected. So in_channels and in_index must be of type int.
-        When input_transform
-        Args:
-            in_channels (int|Sequence[int]): Input channels.
-            in_index (int|Sequence[int]): Input feature index.
-            input_transform (str|None): Transformation type of input features.
-                Options: 'resize_concat', 'multiple_select', None.
-                'resize_concat': Multiple feature maps will be resize to the
-                    same size as first one and than concat together.
-                    Usually used in FCN head of HRNet.
-                'multiple_select': Multiple feature maps will be bundle into
-                    a list and passed into decode head.
-                None: Only one select feature map is allowed.
-        """
+        self._sync_master = SyncMaster(self._data_parallel_master)
 
-        if input_transform is not None:
-            assert input_transform in ["resize_concat", "multiple_select"]
-        self.input_transform = input_transform
-        self.in_index = in_index
-        if input_transform is not None:
-            assert isinstance(in_channels, (list, tuple))
-            assert isinstance(in_index, (list, tuple))
-            assert len(in_channels) == len(in_index)
-            if input_transform == "resize_concat":
-                self.in_channels = sum(in_channels)
-            else:
-                self.in_channels = in_channels
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+        # customed batch norm statistics
+        self.momentum = momentum
+
+    def forward(self, input, weight=None, bias=None):
+        # If it is not parallel computation or is in evaluation mode, use PyTorch's implementation.
+        if not (self._is_parallel and self.training):
+            return F.batch_norm(
+                input,
+                self.running_mean,
+                self.running_var,
+                self.weight,
+                self.bias,
+                self.training,
+                self.momentum,
+                self.eps,
+            )
+
+        # Resize the input to (B, C, -1).
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+
+        # Compute the sum and square-sum.
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input**2)
+
+        # Reduce-and-broadcast the statistics.
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(
+                _ChildMessage(input_sum, input_ssum, sum_size)
+            )
         else:
-            assert isinstance(in_channels, int)
-            assert isinstance(in_index, int)
-            self.in_channels = in_channels
+            mean, inv_std = self._slave_pipe.run_slave(
+                _ChildMessage(input_sum, input_ssum, sum_size)
+            )
 
-    def _transform_inputs(self, inputs):
-        """Transform inputs for decoder.
-        Args:
-            inputs (list[Tensor]): List of multi-level img features.
-        Returns:
-            Tensor: The transformed inputs
-        """
+        # Compute the output.
+        if self.affine:
+            if weight is None or bias is None:
+                weight = self.weight
+                bias = self.bias
 
-        if self.input_transform == "resize_concat":
-            inputs = [inputs[i] for i in self.in_index]
-            upsampled_inputs = [
-                resize(
-                    input=x,
-                    size=inputs[0].shape[2:],
-                    mode="bilinear",
-                    align_corners=self.align_corners,
-                )
-                for x in inputs
-            ]
-            inputs = torch.cat(upsampled_inputs, dim=1)
-        elif self.input_transform == "multiple_select":
-            inputs = [inputs[i] for i in self.in_index]
+            # MJY:: Fuse the multiplication for speed.
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(
+                inv_std * weight
+            ) + _unsqueeze_ft(bias)
         else:
-            inputs = inputs[self.in_index]
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
 
-        return inputs
+        # Reshape it.
+        return output.view(input_shape)
 
-    @auto_fp16()
-    @abstractmethod
-    def forward(self, inputs):
-        """Placeholder of forward function."""
-        pass
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
 
-    def forward_train(self, inputs, img_metas, gt_semantic_seg, train_cfg):
-        """Forward function for training.
-        Args:
-            inputs (list[Tensor]): List of multi-level img features.
-            img_metas (list[dict]): List of image info dict where each dict
-                has: 'img_shape', 'scale_factor', 'flip', and may also contain
-                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
-                For details on the values of these keys see
-                `mmseg/datasets/pipelines/formatting.py:Collect`.
-            gt_semantic_seg (Tensor): Semantic segmentation masks
-                used if the architecture supports semantic segmentation task.
-            train_cfg (dict): The training config.
-        Returns:
-            dict[str, Tensor]: a dictionary of loss components
-        """
-        seg_logits = self.forward(inputs)
-        losses = self.losses(seg_logits, gt_semantic_seg)
-        return losses
+        # parallel_id == 0 means master device.
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
 
-    def forward_test(self, inputs, img_metas, test_cfg):
-        """Forward function for testing.
-        Args:
-            inputs (list[Tensor]): List of multi-level img features.
-            img_metas (list[dict]): List of image info dict where each dict
-                has: 'img_shape', 'scale_factor', 'flip', and may also contain
-                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
-                For details on the values of these keys see
-                `mmseg/datasets/pipelines/formatting.py:Collect`.
-            test_cfg (dict): The testing config.
-        Returns:
-            Tensor: Output segmentation map.
-        """
-        return self.forward(inputs)
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
 
-    def cls_seg(self, feat):
-        """Classify each pixel."""
-        if self.dropout is not None:
-            feat = self.dropout(feat)
-        output = self.conv_seg(feat)
-        return output
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]  # flatten
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
 
-    # @force_fp32(apply_to=("seg_logit",))
-    # def losses(self, seg_logit, seg_label):
-    #     """Compute segmentation loss."""
-    #     loss = dict()
-    #     seg_logit = resize(
-    #         input=seg_logit,
-    #         size=seg_label.shape[2:],
-    #         mode="bilinear",
-    #         align_corners=self.align_corners,
-    #     )
-    #     if self.sampler is not None:
-    #         seg_weight = self.sampler.sample(seg_logit, seg_label)
-    #     else:
-    #         seg_weight = None
-    #     seg_label = seg_label.squeeze(1)
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
 
-    #     if not isinstance(self.loss_decode, nn.ModuleList):
-    #         losses_decode = [self.loss_decode]
-    #     else:
-    #         losses_decode = self.loss_decode
-    #     for loss_decode in losses_decode:
-    #         if loss_decode.loss_name not in loss:
-    #             loss[loss_decode.loss_name] = loss_decode(
-    #                 seg_logit,
-    #                 seg_label,
-    #                 weight=seg_weight,
-    #                 ignore_index=self.ignore_index,
-    #             )
-    #         else:
-    #             loss[loss_decode.loss_name] += loss_decode(
-    #                 seg_logit,
-    #                 seg_label,
-    #                 weight=seg_weight,
-    #                 ignore_index=self.ignore_index,
-    #             )
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
 
-    #     loss["acc_seg"] = accuracy(seg_logit, seg_label, ignore_index=self.ignore_index)
-    #     return loss
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2 : i * 2 + 2])))
+
+        return outputs
+
+    def _add_weighted(self, dest, delta, alpha=1, beta=1, bias=0):
+        """return *dest* by `dest := dest*alpha + delta*beta + bias`"""
+        return dest * alpha + delta * beta + bias
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert (
+            size > 1
+        ), "BatchNorm computes unbiased standard-deviation, which requires size > 1."
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+
+        self.running_mean = (
+            1 - self.momentum
+        ) * self.running_mean + self.momentum * mean.data
+        self.running_var = (
+            1 - self.momentum
+        ) * self.running_var + self.momentum * unbias_var.data
+
+        return mean, (bias_var + self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    r"""Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+    .. math::
+        y = \frac{x - mean[x]}{ \sqrt{Var[x] + \epsilon}} * gamma + beta
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+    During evaluation, this running mean/variance is used for normalization.
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError("expected 4D input (got {}D input)".format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)

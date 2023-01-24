@@ -108,7 +108,7 @@ class SegNextConfig(PretrainedConfig):
         num_encoder_blocks=4,  # num_stages
         depths=[3, 3, 12, 3],
         ffn_ratios=[8, 8, 4, 4],
-        hidden_sizes=[64, 128, 320, 512],  # embed_dims
+        hidden_sizes=[64, 128, 320, 512],  # embed_dims, decoder, in_channel
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
         num_attention_heads=[1, 2, 5, 8],
@@ -118,12 +118,22 @@ class SegNextConfig(PretrainedConfig):
         attention_probs_dropout_prob=0.0,
         classifier_dropout_prob=0.1,
         initializer_range=0.02,
-        drop_path_rate=0.1,
+        drop_path_rate=0.2,
         layer_norm_eps=1e-6,
         decoder_hidden_size=512,  # dec_outChannels, segformer: 768
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
-        norm_cfg=dict(type="SyncBN", requires_grad=True),
+        norm_type=dict(type="batch_norm", requires_grad=True),
+        put_cheese=True,
+        MD_D=512,
+        MD_S=1,
+        MD_R=64,
+        SPATIAL=True,
+        INV_T=1,
+        Eta=0.9,
+        RAND_INT=True,
+        TRAIN_STEP=6,
+        EVAL_STEP=6,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -154,7 +164,17 @@ class SegNextConfig(PretrainedConfig):
         self.decoder_hidden_size = decoder_hidden_size
         self.reshape_last_stage = kwargs.get("reshape_last_stage", True)
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
-        self.norm_cfg = norm_cfg
+        self.norm_type = norm_type
+        self.put_cheese = put_cheese
+        self.MD_D = MD_D
+        self.MD_S = MD_S
+        self.MD_R = MD_R
+        self.SPATIAL = SPATIAL
+        self.INV_T = INV_T
+        self.Eta = Eta
+        self.RAND_INT = RAND_INT
+        self.TRAIN_STEP = TRAIN_STEP
+        self.EVAL_STEP = EVAL_STEP
 
 
 class SegformerOnnxConfig(OnnxConfig):
