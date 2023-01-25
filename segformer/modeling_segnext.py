@@ -404,8 +404,7 @@ class MSCA(nn.Module):
 
         mixer_2 = self.conv11(add_2)
 
-        op = mixer * skip + mixer_1 * skip + mixer_2 * skip
-
+        op = (mixer + mixer_1 + mixer_2) * skip
         return op
 
 
