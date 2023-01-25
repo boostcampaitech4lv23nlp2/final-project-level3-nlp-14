@@ -1,6 +1,10 @@
 
 import os
 import json
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
+
 import torch
 import argparse
 from thop import profile
@@ -30,7 +34,7 @@ def main(opt):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default="/dataset_path")
+    parser.add_argument('--data_dir', type=str, default="/opt/ml/final-project-level3-nlp-14/ADEC")
     return parser.parse_args()
 
 if __name__ == "__main__":

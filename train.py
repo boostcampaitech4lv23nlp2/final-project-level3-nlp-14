@@ -216,7 +216,7 @@ def parse_args():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="/opt/ml/Naver_BoostCamp_NOTA/dataset/ADEChallengeData2016",
+        default="/opt/ml/final-project-level3-nlp-14/ADEC",
     )
     parser.add_argument(
         "--log-level",

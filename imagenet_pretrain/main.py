@@ -2,6 +2,8 @@
 # All rights reserved.
 import os
 import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
 
 import argparse
 import datetime
@@ -308,7 +310,8 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument(
         "--data-path",
-        default="/datasets01/imagenet_full_size/061417/",
+        # default="/datasets01/imagenet_full_size/061417/",
+        default="/opt/ml/tiny-imagenet-200",
         type=str,
         help="dataset path",
     )
@@ -511,7 +514,7 @@ def main(args):
 
     model_without_ddp = model
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("number of params:", n_parameters)
