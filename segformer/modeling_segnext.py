@@ -342,12 +342,84 @@ class BlockFFN(nn.Module):
         return op
 
 
-class MSCA(nn.Module):
+class MaxMSCA(nn.Module):
     def __init__(self, dim):
         super(MSCA, self).__init__()
         # input
         self.maxpl = nn.MaxPool2d(3, stride = 1, padding = 1)
+        self.conv55 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
+        # split into multipats of multiscale attention
+        self.conv17_0 = nn.Conv2d(dim, dim, (1, 7), padding=(0, 3), groups=dim)
+        self.conv17_1 = nn.Conv2d(dim, dim, (7, 1), padding=(3, 0), groups=dim)
+
+        self.conv111_0 = nn.Conv2d(dim, dim, (1, 11), padding=(0, 5), groups=dim)
+        self.conv111_1 = nn.Conv2d(dim, dim, (11, 1), padding=(5, 0), groups=dim)
+
+        self.conv211_0 = nn.Conv2d(dim, dim, (1, 21), padding=(0, 10), groups=dim)
+        self.conv211_1 = nn.Conv2d(dim, dim, (21, 1), padding=(10, 0), groups=dim)
+
+        self.conv11 = nn.Conv2d(dim, dim, 1)  # channel mixer
+
+    def forward(self, x):
+        skip = x.clone()
+        x = self.maxpl(x.clone())
+        
+        c55 = self.conv55(x)
+        c17 = self.conv17_0(x)
+        c17 = self.conv17_1(c17)
+        c111 = self.conv111_0(x)
+        c111 = self.conv111_1(c111)
+        c211 = self.conv211_0(x)
+        c211 = self.conv211_1(c211)
+
+        add = c55 + c17 + c111 + c211
+
+        mixer = self.conv11(add)
+
+        op = mixer * skip
+        return op
+
+class AvgMSCA(nn.Module):
+    def __init__(self, dim):
+        super(MSCA, self).__init__()
+        # input
         self.avgpl = nn.AvgPool2d(3, stride = 1, padding = 1)
+        self.conv55 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
+        # split into multipats of multiscale attention
+        self.conv17_0 = nn.Conv2d(dim, dim, (1, 7), padding=(0, 3), groups=dim)
+        self.conv17_1 = nn.Conv2d(dim, dim, (7, 1), padding=(3, 0), groups=dim)
+
+        self.conv111_0 = nn.Conv2d(dim, dim, (1, 11), padding=(0, 5), groups=dim)
+        self.conv111_1 = nn.Conv2d(dim, dim, (11, 1), padding=(5, 0), groups=dim)
+
+        self.conv211_0 = nn.Conv2d(dim, dim, (1, 21), padding=(0, 10), groups=dim)
+        self.conv211_1 = nn.Conv2d(dim, dim, (21, 1), padding=(10, 0), groups=dim)
+
+        self.conv11 = nn.Conv2d(dim, dim, 1)  # channel mixer
+
+    def forward(self, x):
+        skip = x.clone()
+        x = self.avgpl(x.clone())
+        
+        c55 = self.conv55(x)
+        c17 = self.conv17_0(x)
+        c17 = self.conv17_1(c17)
+        c111 = self.conv111_0(x)
+        c111 = self.conv111_1(c111)
+        c211 = self.conv211_0(x)
+        c211 = self.conv211_1(c211)
+
+        add = c55 + c17 + c111 + c211
+
+        mixer = self.conv11(add)
+
+        op = mixer * skip
+        return op
+    
+class MSCA(nn.Module):
+    def __init__(self, dim):
+        super(MSCA, self).__init__()
+        # input
         self.conv55 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
         # split into multipats of multiscale attention
         self.conv17_0 = nn.Conv2d(dim, dim, (1, 7), padding=(0, 3), groups=dim)
@@ -364,9 +436,7 @@ class MSCA(nn.Module):
     def forward(self, x):
 
         skip = x.clone()
-        x2 = self.maxpl(x.clone())
-        x1 = self.avgpl(x.clone())
-        
+
         c55 = self.conv55(x)
         c17 = self.conv17_0(x)
         c17 = self.conv17_1(c17)
@@ -379,32 +449,7 @@ class MSCA(nn.Module):
 
         mixer = self.conv11(add)
 
-
-        c55_1 = self.conv55(x1)
-        c17_1 = self.conv17_0(x1)
-        c17_1 = self.conv17_1(c17_1)
-        c111_1 = self.conv111_0(x1)
-        c111_1 = self.conv111_1(c111_1)
-        c211_1 = self.conv211_0(x1)
-        c211_1 = self.conv211_1(c211_1)
-
-        add_1 = c55_1 + c17_1 + c111_1 + c211_1
-
-        mixer_1 = self.conv11(add_1)
-
-        c55_2 = self.conv55(x2)
-        c17_2 = self.conv17_0(x2)
-        c17_2 = self.conv17_1(c17_2)
-        c111_2 = self.conv111_0(x2)
-        c111_2 = self.conv111_1(c111_2)
-        c211_2 = self.conv211_0(x2)
-        c211_2 = self.conv211_1(c211_2)
-
-        add_2 = c55_2 + c17_2 + c111_2 + c211_2
-
-        mixer_2 = self.conv11(add_2)
-
-        op = (mixer + mixer_1 + mixer_2) * skip
+        op = mixer * skip
         return op
 
 
@@ -415,6 +460,8 @@ class BlockMSCA(nn.Module):
         self.proj1 = nn.Conv2d(dim, dim, 1)
         self.act = nn.GELU()
         self.msca = MSCA(dim)
+        self.max_msca = MaxMSCA(dim)
+        self.avg_msca = AvgMSCA(dim)
         self.proj2 = nn.Conv2d(dim, dim, 1)
         self.layer_scale = LayerScale(dim, init_value=ls_init_val)
         self.drop_path = StochasticDepth(p=drop_path)
@@ -427,12 +474,18 @@ class BlockMSCA(nn.Module):
         x = self.norm(x)
         x = self.proj1(x)
         x = self.act(x)
-        x = self.msca(x)
-        x = self.proj2(x)
-        x = self.layer_scale(x)
-        x = self.drop_path(x)
+        x_max = x.clone()
+        x_avg = x.clone()
 
-        out = x + skip
+        x_msca = self.msca(x)
+        x_max = self.max_msca(x_max)
+        x_avg = self.avg_msca(x_avg)
+        x_triple = x_msca + x_max + x_avg
+        x_triple = self.proj2(x_triple)
+        x_triple = self.layer_scale(x_triple)
+        x_triple = self.drop_path(x_triple)
+        #x_triple = self.norm(x_triple)
+        out = x_triple + skip
 
         return out
 
