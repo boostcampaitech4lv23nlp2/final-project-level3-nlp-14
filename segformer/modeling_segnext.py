@@ -523,15 +523,7 @@ class SegNextEncoder(nn.Module):
                     all_self_attentions = all_self_attentions + (layer_outputs[1],)
             # third, apply layer norm
             hidden_states = norm_layer(hidden_states)
-            # fourth, optionally reshape back to (batch_size, num_channels, height, width)
-            # if idx != len(self.patch_embeddings) - 1 or (
-            #     idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
-            # ):
-            #     hidden_states = (
-            #         hidden_states.reshape(batch_size, height, width, -1)
-            #         .permute(0, 3, 1, 2)
-            #         .contiguous()
-            #     )
+
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -806,6 +798,10 @@ class HamDecoder(nn.Module):
 
         ham_channels = config.decoder_hidden_size
 
+        self.classifier = nn.Conv2d(
+            config.decoder_hidden_size, config.num_labels, kernel_size=1
+        )
+
         self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
         self.ham_attn = HamBurger(ham_channels, config)
         self.align = ConvRelu(ham_channels, ham_channels)
@@ -817,17 +813,14 @@ class HamDecoder(nn.Module):
             resize(feature, size=features[-3].shape[2:], mode="bilinear")
             for feature in features
         ]
-        x = torch.cat(features, dim=1)
+        hidden_states = torch.cat(features, dim=1)
 
-        x = self.squeeze(x)
-        x = self.ham_attn(x)
-        x = self.align(x)
+        hidden_states = self.squeeze(hidden_states)
+        hidden_states = self.ham_attn(hidden_states)
+        hidden_states = self.align(hidden_states)
+        logits = self.classifier(hidden_states)
 
-        return BaseModelOutput(
-            last_hidden_state=x,
-            hidden_states=None,
-            attentions=None,
-        )
+        return logits
 
 
 @add_start_docstrings(
@@ -892,7 +885,7 @@ class SegformerForSemanticSegmentation(SegNextPreTrainedModel):
             else self.config.output_hidden_states
         )
 
-        outputs = self.segformer(
+        outputs = self.segnext(
             pixel_values,
             output_attentions=output_attentions,
             output_hidden_states=True,  # we need the intermediate hidden states
