@@ -308,6 +308,44 @@ class SegformerMixFFN(nn.Module):
         hidden_states = self.dense2(hidden_states)
         hidden_states = self.dropout(hidden_states)
         return hidden_states
+    
+    
+class DestMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+        super().__init__()
+        out_features = out_features or in_features
+        
+        self.conv1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, stride=1)
+        self.batch_norm1 = nn.BatchNorm2d(hidden_features)
+        
+        self.dwconv = SegformerDWConv(hidden_features)
+        self.batch_norm2 = nn.BatchNorm2d(hidden_features)
+        self.activation = nn.ReLU()
+        
+        self.conv2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, stride=1)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.batch_norm1(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.batch_norm2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.activation(hidden_states)
+        
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.dropout(hidden_states)
+        return hidden_states
 
 
 class SegformerLayer(nn.Module):
@@ -325,8 +363,8 @@ class SegformerLayer(nn.Module):
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
-        #self.mlp = DestMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        #self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.mlp = DestMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_attention_outputs = self.attention(
