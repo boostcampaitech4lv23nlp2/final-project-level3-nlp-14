@@ -344,7 +344,7 @@ class BlockFFN(nn.Module):
 
 class MaxMSCA(nn.Module):
     def __init__(self, dim):
-        super(MSCA, self).__init__()
+        super(MaxMSCA, self).__init__()
         # input
         self.maxpl = nn.MaxPool2d(3, stride = 1, padding = 1)
         self.conv55 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
@@ -381,7 +381,7 @@ class MaxMSCA(nn.Module):
 
 class AvgMSCA(nn.Module):
     def __init__(self, dim):
-        super(MSCA, self).__init__()
+        super(AvgMSCA, self).__init__()
         # input
         self.avgpl = nn.AvgPool2d(3, stride = 1, padding = 1)
         self.conv55 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
@@ -451,7 +451,6 @@ class MSCA(nn.Module):
 
         op = mixer * skip
         return op
-
 
 class BlockMSCA(nn.Module):
     def __init__(self, dim, ls_init_val=1e-2, drop_path=0.0, norm_type="sync_bn"):
