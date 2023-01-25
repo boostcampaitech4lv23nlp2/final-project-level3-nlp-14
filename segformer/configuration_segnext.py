@@ -131,9 +131,9 @@ class SegNextConfig(PretrainedConfig):
         SPATIAL=True,
         INV_T=1,
         Eta=0.9,
-        RAND_INT=True,
-        TRAIN_STEP=6,
-        EVAL_STEP=6,
+        RAND_INIT=True,
+        TRAIN_STEPS=6,
+        EVAL_STEPS=6,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -172,9 +172,9 @@ class SegNextConfig(PretrainedConfig):
         self.SPATIAL = SPATIAL
         self.INV_T = INV_T
         self.Eta = Eta
-        self.RAND_INT = RAND_INT
-        self.TRAIN_STEP = TRAIN_STEP
-        self.EVAL_STEP = EVAL_STEP
+        self.RAND_INIT = RAND_INIT
+        self.TRAIN_STEPS = TRAIN_STEPS
+        self.EVAL_STEPS = EVAL_STEPS
 
 
 class SegformerOnnxConfig(OnnxConfig):
