@@ -123,6 +123,7 @@ class SegformerConfig(PretrainedConfig):
         decoder_hidden_size=768,
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
+        linear = True,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -153,6 +154,7 @@ class SegformerConfig(PretrainedConfig):
         self.decoder_hidden_size = decoder_hidden_size
         self.reshape_last_stage = kwargs.get("reshape_last_stage", True)
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
+        self.linear = linear
 
 
 class SegformerOnnxConfig(OnnxConfig):
