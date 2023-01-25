@@ -44,7 +44,6 @@ from transformers.utils import (
 from .configuration_segnext import SegNextConfig
 
 from .bricks import (
-    DownSample,
     LayerScale,
     StochasticDepth,
     DWConv3x3,
@@ -827,7 +826,7 @@ class HamDecoder(nn.Module):
     """SegFormer Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
     SEGFORMER_START_DOCSTRING,
 )
-class SegformerForSemanticSegmentation(SegNextPreTrainedModel):
+class SegNextForSemanticSegmentation(SegNextPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.segnext = SegNextModel(config)
