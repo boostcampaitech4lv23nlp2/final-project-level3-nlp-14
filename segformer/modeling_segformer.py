@@ -674,8 +674,11 @@ class SegformerMLP(nn.Module):
     def __init__(self, config: SegformerConfig, input_dim):
         super().__init__()
         self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
-
+        self.dwconv = nn.Conv2d(input_dim, input_dim, 3,1,1, groups = input_dim)
+        self.bn = nn.BatchNorm2d(input_dim)
     def forward(self, hidden_states: torch.Tensor):
+        hidden_states = self.dwconv(hidden_states)
+        hidden_states = self.bn(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         hidden_states = self.proj(hidden_states)
         return hidden_states
