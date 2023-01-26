@@ -171,12 +171,26 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.sr_ratio = sequence_reduction_ratio
+        """
         if sequence_reduction_ratio > 1:
             self.sr = nn.Conv2d(
                 hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
             )
             self.layer_norm = nn.LayerNorm(hidden_size)
-
+        """
+        if sequence_reduction_ratio > 1:
+            self.c1 = nn.Sequential(
+                nn.Conv2d(hidden_size, hidden_size, kernel_size = (1,sequence_reduction_ratio), stride=(1,sequence_reduction_ratio), groups= sequence_reduction_ratio),
+                nn.Conv2d(hidden_size, hidden_size, kernel_size = (sequence_reduction_ratio,1), stride=(sequence_reduction_ratio,1), groups= sequence_reduction_ratio)
+            )
+            self.c2 = nn.Conv2d(
+                hidden_size, hidden_size, kernel_size = 3, stride = sequence_reduction_ratio, groups= sequence_reduction_ratio
+            )
+            self.c3 = nn.Sequential(
+                nn.AvgPool2d(sequence_reduction_ratio),
+                nn.Conv2d(hidden_size,hidden_size,3,1,1)
+            )
+        
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         hidden_states = hidden_states.view(new_shape)
@@ -190,7 +204,7 @@ class SegformerEfficientSelfAttention(nn.Module):
         output_attentions=False,
     ):
         query_layer = self.transpose_for_scores(self.query(hidden_states))
-
+        """
         if self.sr_ratio > 1:
             batch_size, seq_len, num_channels = hidden_states.shape
             # Reshape to (batch_size, num_channels, height, width)
@@ -200,9 +214,20 @@ class SegformerEfficientSelfAttention(nn.Module):
             # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
             hidden_states = self.layer_norm(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
+        """
+        if self.sr_ratio > 1:
+            b, n, c = hidden_states.size()
+            hidden_states = hidden_states.permute(0,2,1).contiguous()
+            hidden_states = hidden_states.view(b, c, height, width)
+            c1 = self.c1(hidden_states).view(b,-1,c)
+            c2 = self.c2(hidden_states).view(b,-1,c)
+            c3 = self.c3(hidden_states).view(b,-1,c)
+            cat = torch.cat((c1,c2,c3), 1)
+            key_layer = self.transpose_for_scores(self.key(cat))
+            value_layer = self.transpose_for_scores(self.value(cat))
+        else:
+            key_layer = self.transpose_for_scores(self.key(hidden_states))
+            value_layer = self.transpose_for_scores(self.value(hidden_states))
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
@@ -674,11 +699,11 @@ class SegformerMLP(nn.Module):
     def __init__(self, config: SegformerConfig, input_dim):
         super().__init__()
         self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
-        self.dwconv = nn.Conv2d(input_dim, input_dim, 3,1,1, groups = input_dim)
-        self.bn = nn.BatchNorm2d(input_dim)
+        #self.dwconv = nn.Conv2d(input_dim, input_dim, 3,1,1, groups = input_dim)
+        #self.bn = nn.BatchNorm2d(input_dim)
     def forward(self, hidden_states: torch.Tensor):
-        hidden_states = self.dwconv(hidden_states)
-        hidden_states = self.bn(hidden_states)
+        #hidden_states = self.dwconv(hidden_states)
+        #hidden_states = self.bn(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
         hidden_states = self.proj(hidden_states)
         return hidden_states
