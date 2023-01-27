@@ -184,7 +184,7 @@ class ConvBNRelu(nn.Module):
             groups=groups,
             bias=False,
         )
-        self.norm = NormLayer(outChannels, norm_type="sync_bn")
+        self.norm = NormLayer(outChannels, norm_type="batch_norm")
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):

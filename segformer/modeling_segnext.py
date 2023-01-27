@@ -797,8 +797,9 @@ class HamDecoder(nn.Module):
 
         ham_channels = config.decoder_hidden_size
 
-        self.classifier = nn.Conv2d(
-            config.decoder_hidden_size, config.num_labels, kernel_size=1
+        self.classifier = nn.Sequential(
+            nn.Dropout2d(p=0.1),
+            nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1),
         )
 
         self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
@@ -808,7 +809,7 @@ class HamDecoder(nn.Module):
     def forward(self, features):
 
         features = features[1:]  # drop stage 1 features b/c low level
-        features = [
+        features = [  # 모든 feature를 stage1의 h,w로 resize한다.
             resize(feature, size=features[-3].shape[2:], mode="bilinear")
             for feature in features
         ]
@@ -831,6 +832,7 @@ class SegNextForSemanticSegmentation(SegNextPreTrainedModel):
         super().__init__(config)
         self.segnext = SegNextModel(config)
         self.decode_head = HamDecoder(config)
+        # self.decode_head = SegformerDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
