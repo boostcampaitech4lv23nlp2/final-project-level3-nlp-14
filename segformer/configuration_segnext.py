@@ -124,7 +124,7 @@ class SegNextConfig(PretrainedConfig):
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
         norm_type=dict(type="batch_norm", requires_grad=True),
-        put_cheese=True,
+        put_cheese=False,  # True,
         MD_D=512,
         MD_S=1,
         MD_R=64,

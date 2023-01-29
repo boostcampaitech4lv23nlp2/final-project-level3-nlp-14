@@ -135,7 +135,7 @@ class NMF2D(_MatrixDecomposition2DBase):
     def _build_bases(self, B, S, D, R):
 
         bases = torch.rand((B * S, D, R)).to(#"cpu")  # get_flops_params할 때 사용
-        "cuda" if torch.cuda.is_available() else "cpu"
+            "cuda" if torch.cuda.is_available() else "cpu"
         )
         bases = F.normalize(bases, dim=1)  # column wise normalization i.e HW dim
 
@@ -189,7 +189,7 @@ class HamBurger(nn.Module):
             nn.Conv2d(inChannels, C, 1), nn.ReLU(inplace=True)
         )
         self.ham = NMF2D(config)
-        self.cheese = ConvBNRelu(C, C)
+        self.cheese = ConvBNRelu(C, C) if config.put_cheese else None
         self.upper_bread = nn.Conv2d(C, inChannels, 1, bias=False)
 
     #     self.init_weights()
