@@ -5,6 +5,7 @@ timm
 transformers
 mmcv
 thop
+einops
 
 numpy == 1.20.3
 pillow ==8.3.2
