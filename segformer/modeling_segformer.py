@@ -17,7 +17,7 @@
 
 import math
 from typing import Optional, Tuple, Union
-
+from einops import rearrange
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -155,28 +155,43 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.hidden_size = hidden_size
         self.num_attention_heads = num_attention_heads
 
+        """
         if self.hidden_size % self.num_attention_heads != 0:
             raise ValueError(
                 f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
                 f"heads ({self.num_attention_heads})"
             )
+        """
+        #self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
+        #self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
 
+        self.key_channel = 64
+        self.value_channel = 32
+        self.head_key_channel = self.key_channel // self.num_attention_heads
+        self.head_value_channel = self.value_channel // self.num_attention_heads
+        if self.key_channel % self.num_attention_heads != 0 or self.value_channel % self.num_attention_heads != 0:
+            raise ValueError(
+                f"key channel num or value channel num cant divided by attention head num"
+            )
+        self.query = nn.Conv2d(hidden_size, self.key_channel, 1)
+        self.key = nn.Conv2d(hidden_size, self.key_channel, 1)
+        self.value = nn.Conv2d(hidden_size, self.value_channel, 1)
+        self.reprojection = nn.Conv2d(self.value_channel, hidden_size, 1)
+        """
         self.query = nn.Linear(self.hidden_size, self.all_head_size)
         self.key = nn.Linear(self.hidden_size, self.all_head_size)
         self.value = nn.Linear(self.hidden_size, self.all_head_size)
-
+        """
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
-
+        """
         self.sr_ratio = sequence_reduction_ratio
         if sequence_reduction_ratio > 1:
             self.sr = nn.Conv2d(
                 hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
             )
             self.layer_norm = nn.LayerNorm(hidden_size)
-
+        """
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         hidden_states = hidden_states.view(new_shape)
@@ -189,40 +204,41 @@ class SegformerEfficientSelfAttention(nn.Module):
         width,
         output_attentions=False,
     ):
-        query_layer = self.transpose_for_scores(self.query(hidden_states))
+        b,_,c = hidden_states.size()
+        hidden_states = rearrange(hidden_states, 'b (h w) c -> b c h w', h = height)
+        queries = self.query(hidden_states).reshape(b,self.key_channel, height * width)
+        keys = self.key(hidden_states).reshape(b, self.key_channel, height * width)
+        values = self.value(hidden_states).reshape(b, self.value_channel, height * width)
+        head_key_channels = self.head_key_channel
+        head_value_channels = self.head_value_channel
+        attended_values = []
+        for i in range(self.num_attention_heads):
+            key = nn.functional.softmax(keys[
+                :,
+                i * head_key_channels: (i + 1) * head_key_channels,
+                :
+            ], dim=2)
+            query = nn.functional.softmax(queries[
+                :,
+                i * head_key_channels: (i + 1) * head_key_channels,
+                :
+            ], dim=1)
+            value = values[
+                :,
+                i * head_value_channels: (i + 1) * head_value_channels,
+                :
+            ]
+            context = key @ value.transpose(1, 2)
+            attended_value = (
+                context.transpose(1, 2) @ query
+            ).reshape(b, head_value_channels, height, width)
+            attended_values.append(attended_value)
 
-        if self.sr_ratio > 1:
-            batch_size, seq_len, num_channels = hidden_states.shape
-            # Reshape to (batch_size, num_channels, height, width)
-            hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
-            hidden_states = self.layer_norm(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
-
-        # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-
-        # Normalize the attention scores to probabilities.
-        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
-
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout(attention_probs)
-
-        context_layer = torch.matmul(attention_probs, value_layer)
-
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(new_context_layer_shape)
-
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+        aggregated_values = torch.cat(attended_values, dim=1)
+        reprojected_value = self.reprojection(aggregated_values)
+        attention = reprojected_value + hidden_states
+        attention = rearrange(attention, 'b c h w -> b (h w) c')
+        outputs = (attention, )
 
         return outputs
 

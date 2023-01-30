@@ -111,7 +111,7 @@ class SegformerConfig(PretrainedConfig):
         hidden_sizes=[64, 128, 320, 512],
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
-        num_attention_heads=[1, 2, 5, 8],
+        num_attention_heads=[1, 2, 4, 8], #original 1,2,5,8
         mlp_ratios=[4, 4, 4, 4],
         hidden_act="gelu",
         hidden_dropout_prob=0.0,
