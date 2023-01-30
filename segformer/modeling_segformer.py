@@ -44,6 +44,19 @@ from transformers.utils import (
 from .configuration_segformer import SegformerConfig
 
 
+from .bricks import (
+    LayerScale,
+    StochasticDepth,
+    DWConv3x3,
+    NormLayer,
+    ConvBNRelu,
+    ConvRelu,
+    resize,
+)
+
+from .hamburger import HamBurger
+
+
 logger = logging.get_logger(__name__)
 
 
@@ -180,20 +193,27 @@ class SegformerEfficientSelfAttention(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         self.query = nn.Linear(self.hidden_size, self.all_head_size)
-        self.key = nn.Linear(self.hidden_size, self.all_head_size)
-        self.value = nn.Linear(self.hidden_size, self.all_head_size)
+        self.kv = nn.Linear(self.hidden_size, self.all_head_size * 2)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
+        self.linear = config.linear
         self.sr_ratio = sequence_reduction_ratio
-        if sequence_reduction_ratio > 1:
-            self.sr = nn.Conv2d(
-                hidden_size,
-                hidden_size,
-                kernel_size=sequence_reduction_ratio,
-                stride=sequence_reduction_ratio,
-            )
+
+        if not self.linear:
+            if sequence_reduction_ratio > 1:
+                self.sr = nn.Conv2d(
+                    hidden_size,
+                    hidden_size,
+                    kernel_size=sequence_reduction_ratio,
+                    stride=sequence_reduction_ratio,
+                )
+                self.layer_norm = nn.LayerNorm(hidden_size)
+        else:
+            self.pool = nn.AdaptiveAvgPool2d(7)
+            self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
             self.layer_norm = nn.LayerNorm(hidden_size)
+            self.act = nn.GELU()
 
     def transpose_for_scores(self, hidden_states):
         new_shape = hidden_states.size()[:-1] + (
@@ -203,42 +223,49 @@ class SegformerEfficientSelfAttention(nn.Module):
         hidden_states = hidden_states.view(new_shape)
         return hidden_states.permute(0, 2, 1, 3)
 
-    def forward(
-        self,
-        hidden_states,
-        height,
-        width,
-        output_attentions=False,
-    ):
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        batch_size, seq_len, num_channels = hidden_states.shape
         query_layer = self.transpose_for_scores(self.query(hidden_states))
 
-        if self.sr_ratio > 1:
-            batch_size, seq_len, num_channels = hidden_states.shape
-            # Reshape to (batch_size, num_channels, height, width)
+        if not self.linear:
+            if self.sr_ratio > 1:
+                hidden_states = hidden_states.permute(0, 2, 1).reshape(
+                    batch_size, num_channels, height, width
+                )
+                hidden_states = self.sr(hidden_states)
+                hidden_states = hidden_states.reshape(
+                    batch_size, num_channels, -1
+                ).permute(0, 2, 1)
+                hidden_states = self.layer_norm(hidden_states)
+        else:
             hidden_states = hidden_states.permute(0, 2, 1).reshape(
                 batch_size, num_channels, height, width
             )
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(
-                0, 2, 1
+            hidden_states = (
+                self.sr(self.pool(hidden_states))
+                .reshape(batch_size, num_channels, -1)
+                .permute(0, 2, 1)
             )
             hidden_states = self.layer_norm(hidden_states)
+            hidden_states = self.act(hidden_states)
 
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
+        kv = (
+            self.kv(hidden_states)
+            .reshape(
+                batch_size,
+                -1,
+                2,
+                self.num_attention_heads,
+                num_channels // self.num_attention_heads,
+            )
+            .permute(2, 0, 3, 1, 4)
+        )
+        key_layer, value_layer = kv[0], kv[1]
 
-        # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # Normalize the attention scores to probabilities.
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
-
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
         context_layer = torch.matmul(attention_probs, value_layer)
@@ -277,7 +304,7 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
+        # self.output = SegformerSelfOutput(config, hidden_size=hidden_size) # del segformeroutput
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -306,10 +333,12 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[
-            1:
-        ]  # add attentions if we output them
+        # attention_output = self.output(self_outputs[0], hidden_states)
+        # outputs = (attention_output,) + self_outputs[
+        #     1:
+        # ]  # add attentions if we output them
+
+        outputs = self_outputs
         return outputs
 
 
@@ -352,6 +381,50 @@ class SegformerMixFFN(nn.Module):
         return hidden_states
 
 
+class DestMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+        super().__init__()
+        out_features = out_features or in_features
+
+        self.conv1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, stride=1)
+        self.batch_norm1 = nn.BatchNorm2d(hidden_features)
+
+        self.dwconv = SegformerDWConv(hidden_features)
+        self.batch_norm2 = nn.BatchNorm2d(hidden_features)
+        self.activation = nn.ReLU()
+
+        self.conv2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, stride=1)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(1, 2).view(
+            batch_size, num_channels, height, width
+        )
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.batch_norm1(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = hidden_states.transpose(1, 2).view(
+            batch_size, num_channels, height, width
+        )
+        hidden_states = self.batch_norm2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.activation(hidden_states)
+
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = hidden_states.transpose(1, 2).view(
+            batch_size, num_channels, height, width
+        )
+        hidden_states = self.conv2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.dropout(hidden_states)
+        return hidden_states
+
+
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
 
@@ -377,7 +450,8 @@ class SegformerLayer(nn.Module):
         )
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(
+        # self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.mlp = DestMixFFN(
             config, in_features=hidden_size, hidden_features=mlp_hidden_size
         )
 
@@ -841,6 +915,41 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         return logits
 
 
+# decoder
+class HamDecoder(nn.Module):
+    """SegNext"""
+
+    def __init__(self, config):
+        super().__init__()
+
+        ham_channels = config.decoder_hidden_size
+
+        self.classifier = nn.Sequential(
+            nn.Dropout2d(p=0.1),
+            nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1),
+        )
+
+        self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
+        self.ham_attn = HamBurger(ham_channels, config)
+        self.align = ConvRelu(ham_channels, ham_channels)
+
+    def forward(self, features):
+
+        features = features[1:]  # drop stage 1 features b/c low level
+        features = [  # 모든 feature를 stage1의 h,w로 resize한다.
+            resize(feature, size=features[-3].shape[2:], mode="bilinear")
+            for feature in features
+        ]
+        hidden_states = torch.cat(features, dim=1)
+
+        hidden_states = self.squeeze(hidden_states)
+        hidden_states = self.ham_attn(hidden_states)
+        hidden_states = self.align(hidden_states)
+        logits = self.classifier(hidden_states)
+
+        return logits
+
+
 @add_start_docstrings(
     """SegFormer Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
     SEGFORMER_START_DOCSTRING,
@@ -849,7 +958,8 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.segformer = SegformerModel(config)
-        self.decode_head = SegformerDecodeHead(config)
+        self.decode_head = HamDecoder(config)
+        # self.decode_head = SegformerDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
