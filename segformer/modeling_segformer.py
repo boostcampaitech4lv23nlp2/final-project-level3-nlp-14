@@ -670,10 +670,12 @@ class SegformerMLP(nn.Module):
     """
     Linear Embedding.
     """
-
-    def __init__(self, config: SegformerConfig, input_dim):
+    def __init__(self, config: SegformerConfig, input_dim, embed_dim=None):
         super().__init__()
-        self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
+        if embed_dim is None:
+            self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
+        else:
+            self.proj = nn.Linear(input_dim, embed_dim)
 
     def forward(self, hidden_states: torch.Tensor):
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
