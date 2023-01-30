@@ -46,3 +46,9 @@ def _fast_hist(label_true, label_pred, n_class):
         n_class * label_true[mask].astype(int) +
         label_pred[mask], minlength=n_class ** 2).reshape(n_class, n_class)
     return hist
+
+
+
+def cal_HW(input_size, patch_size, stride, num_channels, hidden_size):
+    h = ((input_size - patch_size + stride) // stride) + 1
+    return h, h

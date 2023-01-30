@@ -35,7 +35,8 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from .configuration_segformer import SegformerConfig
-
+from .swin_segformer import WindowAttention
+from util.utils import cal_HW
 
 logger = logging.get_logger(__name__)
 
@@ -317,14 +318,22 @@ class SegformerMixFFN(nn.Module):
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
 
-    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio, height, width):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
-        self.attention = SegformerAttention(
+        # self.attention = SegformerAttention(
+        #     config,
+        #     hidden_size=hidden_size,
+        #     num_attention_heads=num_attention_heads,
+        #     sequence_reduction_ratio=sequence_reduction_ratio,
+        # )
+        self.attention = WindowAttention(
             config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
-            sequence_reduction_ratio=sequence_reduction_ratio,
+            # sequence_reduction_ratio=sequence_reduction_ratio,
+            input_resolution=(height, width)
+            # TODO : height, width 넣어주어야함.
         )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
@@ -381,7 +390,15 @@ class SegformerEncoder(nn.Module):
         # Transformer blocks
         blocks = []
         cur = 0
+        H = 224
         for i in range(config.num_encoder_blocks):
+            H, W = cal_HW(
+                input_size=H,
+                patch_size=config.patch_sizes[i],
+                stride=config.strides[i],
+                num_channels=config.num_channels if i == 0 else config.hidden_sizes[i - 1],
+                hidden_size=config.hidden_sizes[i]
+            )
             # each block consists of layers
             layers = []
             if i != 0:
@@ -395,7 +412,10 @@ class SegformerEncoder(nn.Module):
                         drop_path=drop_path_decays[cur + j],
                         sequence_reduction_ratio=config.sr_ratios[i],
                         mlp_ratio=config.mlp_ratios[i],
+                        height=H,
+                        width=W
                     )
+                    
                 )
             blocks.append(nn.ModuleList(layers))
 
