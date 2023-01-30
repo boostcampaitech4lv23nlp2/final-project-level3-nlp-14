@@ -118,21 +118,18 @@ class WMSA(nn.Module):
 
 
 class WindowAttention(nn.Module):
-    def __init__(self, config, hidden_size, num_attention_heads, input_resolution):
+    def __init__(self, config, hidden_size, num_attention_heads, input_resolution, sequence_reduction_ratio):
         super().__init__()
         self.dim = hidden_size
         self.input_resolution = input_resolution    # TODO: height, width 어떻게 넣어줄 것인지 판단.
         self.num_heads = num_attention_heads
         self.window_size = 7  # TODO: window size 어떻게 설정 할 것인지 판단.
-        # self.shift_size = shift_size
         # self.mlp_ratio = mlp_ratio
         # TODO: reduction 처리해야 하는지 판단.
 
         if min(self.input_resolution) <= self.window_size:
             # if window size is larger than input resolution, we don't partition windows
-            # self.shift_size = 0
             self.window_size = min(self.input_resolution)
-        # assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
         self.attn = WMSA(
                 dim=hidden_size, 
@@ -143,7 +140,12 @@ class WindowAttention(nn.Module):
                 attn_drop=config.attention_probs_dropout_prob, 
                 proj_drop=config.hidden_dropout_prob
             )
-
+        self.sr_ratio = sequence_reduction_ratio
+        if sequence_reduction_ratio > 1:
+            self.sr = nn.Conv2d(
+                hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio
+            )
+            self.layer_norm = nn.LayerNorm(hidden_size)
         # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 

@@ -331,7 +331,7 @@ class SegformerLayer(nn.Module):
             config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
-            # sequence_reduction_ratio=sequence_reduction_ratio,
+            sequence_reduction_ratio=sequence_reduction_ratio,
             input_resolution=(height, width)
             # TODO : height, width 넣어주어야함.
         )
