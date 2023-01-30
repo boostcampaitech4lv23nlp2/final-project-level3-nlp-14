@@ -123,6 +123,18 @@ class SegformerConfig(PretrainedConfig):
         decoder_hidden_size=768,
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
+        linear=True,
+        norm_type=dict(type="batch_norm", requires_grad=True),
+        put_cheese=False,  # True,
+        MD_D=512,
+        MD_S=1,
+        MD_R=64,
+        SPATIAL=True,
+        INV_T=1,
+        Eta=0.9,
+        RAND_INIT=True,
+        TRAIN_STEPS=6,
+        EVAL_STEPS=6,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -153,6 +165,18 @@ class SegformerConfig(PretrainedConfig):
         self.decoder_hidden_size = decoder_hidden_size
         self.reshape_last_stage = kwargs.get("reshape_last_stage", True)
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
+        self.linear = linear
+        self.norm_type = norm_type
+        self.put_cheese = put_cheese
+        self.MD_D = MD_D
+        self.MD_S = MD_S
+        self.MD_R = MD_R
+        self.SPATIAL = SPATIAL
+        self.INV_T = INV_T
+        self.Eta = Eta
+        self.RAND_INIT = RAND_INIT
+        self.TRAIN_STEPS = TRAIN_STEPS
+        self.EVAL_STEPS = EVAL_STEPS
 
 
 class SegformerOnnxConfig(OnnxConfig):
@@ -163,7 +187,10 @@ class SegformerOnnxConfig(OnnxConfig):
     def inputs(self) -> Mapping[str, Mapping[int, str]]:
         return OrderedDict(
             [
-                ("pixel_values", {0: "batch", 1: "num_channels", 2: "height", 3: "width"}),
+                (
+                    "pixel_values",
+                    {0: "batch", 1: "num_channels", 2: "height", 3: "width"},
+                ),
             ]
         )
 
