@@ -470,20 +470,20 @@ def main(args):
     #     id2label = json.load(f)
     # id2label = {int(k): v for k, v in id2label.items()}
     # label2id = {v: k for k, v in id2label.items()}
-    # model = SegformerForImageClassification(
-    #     SegformerConfig(
-    #         num_labels=args.nb_classes,
-    #         # id2label=id2label,
-    #         # label2id=label2id
-    #     )
-    # )
-    model = SegNextForImageClassification(
-        SegNextConfig(
+    model = SegformerForImageClassification(
+        SegformerConfig(
             num_labels=args.nb_classes,
             # id2label=id2label,
             # label2id=label2id
         )
     )
+    # model = SegNextForImageClassification(
+    #     SegNextConfig(
+    #         num_labels=args.nb_classes,
+    #         # id2label=id2label,
+    #         # label2id=label2id
+    #     )
+    # )
 
     if args.finetune:
         if args.finetune.startswith("https"):
