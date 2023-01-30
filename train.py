@@ -100,24 +100,24 @@ def main(opt):
         pt = torch.load(opt.pretrain, map_location="cpu")
         dst = opt.pretrain.replace(".pth", "_state_dict.pth")
         torch.save(pt["model"], dst)
-        # model = SegformerForSemanticSegmentation.from_pretrained(
-        #     dst,
-        #     config=SegformerConfig(
-        #         num_labels=len(id2label),
-        #         id2label=id2label,
-        #         label2id=label2id,
-        #         ignore_mismatched_sizes=True,
-        #     ),
-        # )
-        model = SegNextForSemanticSegmentation.from_pretrained(
+        model = SegformerForSemanticSegmentation.from_pretrained(
             dst,
-            config=SegNextConfig(
+            config=SegformerConfig(
                 num_labels=len(id2label),
                 id2label=id2label,
                 label2id=label2id,
                 ignore_mismatched_sizes=True,
             ),
         )
+        # model = SegNextForSemanticSegmentation.from_pretrained(
+        #     dst,
+        #     config=SegNextConfig(
+        #         num_labels=len(id2label),
+        #         id2label=id2label,
+        #         label2id=label2id,
+        #         ignore_mismatched_sizes=True,
+        #     ),
+        # )
     # dir version
     else:
         logging.info("fine-tuning dir")
