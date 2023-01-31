@@ -35,7 +35,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from .configuration_segformer import SegformerConfig
-from .swin_segformer import WindowAttention
+from .swin_segformer import WindowAttention_reduction, SwinformerEfficientSelfAttention
 
 logger = logging.get_logger(__name__)
 
@@ -243,6 +243,7 @@ class SegformerAttention(nn.Module):
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__()
         self.self = SegformerEfficientSelfAttention(
+        # self.self = SwinformerEfficientSelfAttention(
             config=config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
@@ -326,11 +327,12 @@ class SegformerLayer(nn.Module):
         #     num_attention_heads=num_attention_heads,
         #     sequence_reduction_ratio=sequence_reduction_ratio,
         # )
-        self.attention = WindowAttention(
+        self.attention = WindowAttention_reduction(
             config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
+            # input_resolution=(height, width)
         )
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
