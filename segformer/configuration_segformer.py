@@ -104,14 +104,14 @@ class SegformerConfig(PretrainedConfig):
 
     def __init__(
         self,
-        num_channels=3,
+        num_channels=3, #gray scale 실험을 할때는 1로 변경.
         num_encoder_blocks=4,
-        depths=[3, 4, 6, 3],
+        depths=[1, 1, 2, 1],
         sr_ratios=[8, 4, 2, 1],
-        hidden_sizes=[64, 128, 320, 512],
+        hidden_sizes=[64, 128, 256, 512], #320
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
-        num_attention_heads=[1, 2, 5, 8],
+        num_attention_heads=[1, 2, 4, 8], #5
         mlp_ratios=[4, 4, 4, 4],
         hidden_act="gelu",
         hidden_dropout_prob=0.0,
@@ -120,10 +120,17 @@ class SegformerConfig(PretrainedConfig):
         initializer_range=0.02,
         drop_path_rate=0.1,
         layer_norm_eps=1e-6,
-        decoder_hidden_size=768,
+        decoder_hidden_size=768, #if lawin, 512
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
-        linear = True,
+        linear=True,
+        decode_depth=1,
+        decode_concat_fuse=True,
+        conv_cfg=None,
+        act_cfg=dict(type='ReLU'),
+        norm_cfg=dict(type='BN', requires_grad=True),
+        align_corners=False,
+        decoder_params=dict(mixing = True, in_dim = 512, embed_dim = 512, use_scale = True, proj_type = 'conv', reduction = 2),
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -155,6 +162,13 @@ class SegformerConfig(PretrainedConfig):
         self.reshape_last_stage = kwargs.get("reshape_last_stage", True)
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
         self.linear = linear
+        self.decode_depth = decode_depth
+        self.decode_concat_fuse = decode_concat_fuse
+        self.conv_cfg = conv_cfg
+        self.act_cfg = act_cfg
+        self.norm_cfg = norm_cfg
+        self.align_corners = align_corners
+        self.decoder_params = decoder_params
 
 
 class SegformerOnnxConfig(OnnxConfig):
