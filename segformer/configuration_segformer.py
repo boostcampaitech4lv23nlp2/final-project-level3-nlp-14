@@ -106,16 +106,16 @@ class SegformerConfig(PretrainedConfig):
         self,
         num_channels=3,
         num_encoder_blocks=4,
-        depths=[3, 4, 6, 3],
-        # sr_ratios=[8, 4, 2, 1], 
-        sr_ratios=[4, 4, 4, 4], # for bj
+        # depths=[3, 4, 6, 3],
+        depths=[1, 2, 6, 2],
+        sr_ratios=[8, 4, 2, 1],
         hidden_sizes=[64, 128, 320, 512], # for segformer option
         # hidden_sizes=[96, 256, 512, 1024], # for Next option
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
         num_attention_heads=[1, 2, 5, 8],
         mlp_ratios=[4, 4, 4, 4],
-        hidden_act="gelu",
+        hidden_act="relu",
         hidden_dropout_prob=0.0,
         attention_probs_dropout_prob=0.0,
         classifier_dropout_prob=0.1,
@@ -125,12 +125,7 @@ class SegformerConfig(PretrainedConfig):
         decoder_hidden_size=768,
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
-        # # from Nextv
-        # num_convolution_heads=['tmp', 'tmp!!!!'],
-        # with_extra_norm=['tmp'],
-        # resume='',
-        # use_checkpoint='',
-        # norm_cfg='',
+        linear = True,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -161,13 +156,7 @@ class SegformerConfig(PretrainedConfig):
         self.decoder_hidden_size = decoder_hidden_size
         self.reshape_last_stage = kwargs.get("reshape_last_stage", True)
         self.semantic_loss_ignore_index = semantic_loss_ignore_index
-        # # from Next
-        # self.num_convolution_heads = num_convolution_heads
-        # self.with_extra_norm = with_extra_norm
-        # self.resume = resume
-        # self.use_checkpoint = use_checkpoint
-        # self.norm_cfg = norm_cfg
-
+        self.linear = linear
 
 class SegformerOnnxConfig(OnnxConfig):
 

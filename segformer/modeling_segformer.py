@@ -156,6 +156,49 @@ class SegformerOverlapPatchEmbeddings(nn.Module):
         return embeddings, height, width
 
 
+    # def __init__(self, 
+    #              patch_size, 
+    #              stride, 
+    #              num_channels, 
+    #              hidden_size):
+    #     super().__init__()
+    #     self.proj = nn.Conv2d(
+    #         num_channels,
+    #         hidden_size,
+    #         kernel_size=patch_size,
+    #         stride=stride,
+    #         padding=patch_size // 2,
+    #     )
+
+class NextPatchEmbed(nn.Module):
+    def __init__(self,
+                 num_channels,
+                 hidden_size,
+                 stride=1):
+        super(NextPatchEmbed, self).__init__()
+        norm_layer = partial(nn.BatchNorm2d, eps=NORM_EPS)
+        if stride == 2:
+            self.avgpool = nn.AvgPool2d((2, 2), stride=2, ceil_mode=True, count_include_pad=False)
+            self.conv = nn.Conv2d(num_channels, hidden_size, kernel_size=1, stride=1, bias=False)
+            self.norm = norm_layer(hidden_size)
+        elif stride == 4:
+            self.avgpool = nn.AvgPool2d((2, 2), stride=4, ceil_mode=True, count_include_pad=False)
+            self.conv = nn.Conv2d(num_channels, hidden_size, kernel_size=1, stride=1, bias=False)
+            self.norm = norm_layer(hidden_size)
+        # elif num_channels != hidden_size:
+        #     self.avgpool = nn.Identity()
+        #     self.conv = nn.Conv2d(num_channels, hidden_size, kernel_size=1, stride=1, bias=False)
+        #     self.norm = norm_layer(hidden_size)
+        else:
+            self.avgpool = nn.Identity()
+            self.conv = nn.Identity()
+            self.norm = nn.Identity()
+
+    def forward(self, x):
+        _, _, height, width = x.shape
+        embeddings = self.norm(self.conv(self.avgpool(x)))
+        return embeddings, height, width
+
 class SegformerEfficientSelfAttention(nn.Module):
     """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
     paper](https://arxiv.org/abs/2102.12122)."""
@@ -226,6 +269,86 @@ class SegformerEfficientSelfAttention(nn.Module):
         # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
 
+        context_layer = torch.matmul(attention_probs, value_layer)
+
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(new_context_layer_shape)
+
+        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
+
+        return outputs
+
+class SegformerEfficientSelfAttentionFromFalcon(nn.Module): # from falcon
+    """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
+    paper](https://arxiv.org/abs/2102.12122)."""
+
+    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_attention_heads = num_attention_heads
+        
+        if self.hidden_size % self.num_attention_heads != 0:
+            raise ValueError(
+                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
+                f"heads ({self.num_attention_heads})"
+            )
+        
+        self.attention_head_size = int(self.hidden_size / self.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+
+        self.query = nn.Linear(self.hidden_size, self.all_head_size)
+        self.kv = nn.Linear(self.hidden_size, self.all_head_size * 2)
+        
+        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+
+        self.linear = config.linear
+        self.sr_ratio = sequence_reduction_ratio
+        
+        if not self.linear:
+            if sequence_reduction_ratio > 1:
+                self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio)
+                self.layer_norm = nn.LayerNorm(hidden_size)
+        else:
+            self.pool = nn.AdaptiveAvgPool2d(7)
+            self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
+            self.layer_norm = nn.BatchNorm1d(hidden_size)
+            self.act = nn.GELU()
+            
+    def transpose_for_scores(self, hidden_states):
+        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        hidden_states = hidden_states.view(new_shape)
+        return hidden_states.permute(0, 2, 1, 3)
+
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        if len(hidden_states.shape) == 4:
+            batch_size, num_channels, height, width = hidden_states.shape
+            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+
+        batch_size, seq_len, num_channels = hidden_states.shape
+        query_layer = self.transpose_for_scores(self.query(hidden_states))
+
+        if not self.linear:
+            if self.sr_ratio > 1:
+                hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+                hidden_states = self.sr(hidden_states)
+                hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+                hidden_states = self.layer_norm(hidden_states)
+        else:
+            hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+            hidden_states = self.sr(self.pool(hidden_states)).reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+            hidden_states = self.layer_norm(hidden_states)
+            hidden_states = self.act(hidden_states)
+            
+        kv = self.kv(hidden_states).reshape(batch_size, -1, 2, self.num_attention_heads, num_channels // self.num_attention_heads).permute(2, 0, 3, 1, 4)
+        key_layer, value_layer = kv[0], kv[1]
+
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        
+        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
+        attention_probs = self.dropout(attention_probs)
+        
         context_layer = torch.matmul(attention_probs, value_layer)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
@@ -323,6 +446,44 @@ class SegformerMixFFN(nn.Module):
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
+# from falcon
+class DestMixFFN(nn.Module):
+    def __init__(self, config, in_features, hidden_features=None, out_features=None):
+        super().__init__()
+        out_features = out_features or in_features
+        
+        self.conv1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, stride=1)
+        self.batch_norm1 = nn.BatchNorm2d(hidden_features)
+        
+        self.dwconv = SegformerDWConv(hidden_features)
+        self.batch_norm2 = nn.BatchNorm2d(hidden_features)
+        self.activation = nn.ReLU()
+        
+        self.conv2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, stride=1)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, height, width):
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv1(hidden_states)
+        hidden_states = self.batch_norm1(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dwconv(hidden_states, height, width)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.batch_norm2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.activation(hidden_states)
+        
+        batch_size, seq_len, num_channels = hidden_states.shape
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = hidden_states.transpose(1, 2).view(batch_size, num_channels, height, width)
+        hidden_states = self.conv2(hidden_states)
+        hidden_states = hidden_states.flatten(2).transpose(1, 2)
+        hidden_states = self.dropout(hidden_states)
+        return hidden_states
+
 
 class SegformerLayer(nn.Module):
     """This corresponds to the Block class in the original implementation."""
@@ -330,7 +491,7 @@ class SegformerLayer(nn.Module):
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
-        self.attention = SegformerAttention(
+        self.attention = SegformerEfficientSelfAttention(
             config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
@@ -339,7 +500,8 @@ class SegformerLayer(nn.Module):
         self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        # self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.mlp = DestMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
 
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_attention_outputs = self.attention(
@@ -377,44 +539,100 @@ class SegformerEncoder(nn.Module):
 
         # patch embeddings
         embeddings = []
+        # for i in range(config.num_encoder_blocks):
+        #     embeddings.append(
+        #         SegformerOverlapPatchEmbeddings(
+        #             patch_size=config.patch_sizes[i],
+        #             stride=config.strides[i],
+        #             num_channels=config.num_channels if i == 0 else config.hidden_sizes[i - 1],
+        #             hidden_size=config.hidden_sizes[i],
+        #         )
+        #     )
+
         for i in range(config.num_encoder_blocks):
-            embeddings.append(
-                SegformerOverlapPatchEmbeddings(
-                    patch_size=config.patch_sizes[i],
-                    stride=config.strides[i],
-                    num_channels=config.num_channels if i == 0 else config.hidden_sizes[i - 1],
-                    hidden_size=config.hidden_sizes[i],
-                )
-            )
+            temp_embedding=[]
+            for j in range(config.depths[i]):
+                if j == 0:
+                    num_channels=config.num_channels if i == 0 else config.hidden_sizes[i - 1]
+                    hidden_size=config.hidden_sizes[i]
+                    stride=config.strides[i]
+                else :
+                    num_channels=config.hidden_sizes[i]
+                    hidden_size=config.hidden_sizes[i]
+                    stride=1
+                temp_embedding.append(
+                        NextPatchEmbed(
+                            # patch_size=config.patch_sizes[i], #usless
+                            stride=stride,
+                            num_channels=num_channels,
+                            hidden_size=hidden_size,
+                        )
+                    )
+            embeddings.append(nn.ModuleList(temp_embedding))
+
         self.patch_embeddings = nn.ModuleList(embeddings)
 
         # Transformer blocks
         blocks = []
         cur = 0
+        # for i in range(config.num_encoder_blocks):
+        #     # each block consists of layers
+        #     layers = []
+        #     if i != 0:
+        #         cur += config.depths[i - 1]
+        #     for j in range(config.depths[i]):
+        #         layers.append(
+        #             SegformerLayer(
+        #                 config,
+        #                 hidden_size=config.hidden_sizes[i],
+        #                 num_attention_heads=config.num_attention_heads[i],
+        #                 drop_path=drop_path_decays[cur + j],
+        #                 sequence_reduction_ratio=config.sr_ratios[i],
+        #                 mlp_ratio=config.mlp_ratios[i],
+        #             )
+        #         )
+        #     blocks.append(nn.ModuleList(layers))
+        
+        self.architecture = []
         for i in range(config.num_encoder_blocks):
-            # each block consists of layers
             layers = []
+            temp_arcs = []
             if i != 0:
                 cur += config.depths[i - 1]
             for j in range(config.depths[i]):
-                layers.append(
-                    SegformerLayer(
-                        config,
-                        hidden_size=config.hidden_sizes[i],
-                        num_attention_heads=config.num_attention_heads[i],
-                        drop_path=drop_path_decays[cur + j],
-                        sequence_reduction_ratio=config.sr_ratios[i],
-                        mlp_ratio=config.mlp_ratios[i],
+                if (j != config.depths[i]-1 or i == 0) and not (i == 2 and j == 2 or (i == 2 and j == 5)):
+                    layers.append(
+                        NCBForSegformer(
+                            hidden_size=config.hidden_sizes[i]
+                        )
                     )
-                )
+                    temp_arcs.append('conv')
+                if (config.depths[i] != 1 and j == config.depths[i]-1) or ((i == 2 and j == 2) or (i == 2 and j == 5)):
+                    layers.append(    
+                        SegformerLayer(
+                            config,
+                            hidden_size=config.hidden_sizes[i],
+                            num_attention_heads=config.num_attention_heads[i],
+                            drop_path=drop_path_decays[cur + j],
+                            sequence_reduction_ratio=config.sr_ratios[i],
+                            mlp_ratio=config.mlp_ratios[i],
+                        )
+                    )
+                    temp_arcs.append('trans')
             blocks.append(nn.ModuleList(layers))
+            self.architecture.append(temp_arcs)
 
         self.block = nn.ModuleList(blocks)
 
-        # Layer norms
+        # # Layer norms
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
+
+        # # Batch norms # 계속 러닝뭐시기 자꾸 뜨네... 전부 layer로 해봐야겠다.
+        # self.layer_norm = nn.ModuleList(
+        #     [nn.BatchNorm2d(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
+        # )
 
     def forward(
         self,
@@ -428,26 +646,54 @@ class SegformerEncoder(nn.Module):
 
         batch_size = pixel_values.shape[0]
 
-        hidden_states = pixel_values
-        for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
-            embedding_layer, block_layer, norm_layer = x
-            # first, obtain patch embeddings
-            hidden_states, height, width = embedding_layer(hidden_states)
-            # second, send embeddings through blocks
-            for i, blk in enumerate(block_layer):
-                layer_outputs = blk(hidden_states, height, width, output_attentions)
-                hidden_states = layer_outputs[0]
-                if output_attentions:
-                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
-            # third, apply layer norm
-            hidden_states = norm_layer(hidden_states)
-            # fourth, optionally reshape back to (batch_size, num_channels, height, width)
-            if idx != len(self.patch_embeddings) - 1 or (
-                idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
-            ):
-                hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
+        hidden_states = pixel_values #[16, 3, 512, 512]
+        # for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm)):
+        #     embedding_layer, block_layer, norm_layer = x
+        #     # first, obtain patch embeddings
+        #     hidden_states, height, width = embedding_layer(hidden_states) # [128, 64, 56, 56], [224], [224] - > [128, 3136, 64], [56], [56]
+        #     # second, send embeddings through blocks
+        #     for i, blk in enumerate(block_layer):
+        #         layer_outputs = blk(hidden_states, height, width, output_attentions)
+        #         hidden_states = layer_outputs[0] # 튜플반환이 필요했네, 
+        #         if output_attentions:
+        #             all_self_attentions = all_self_attentions + (layer_outputs[1],)
+        #     # third, apply layer norm
+        #     hidden_states = norm_layer(hidden_states) # -> (Batch, seq_len, channel) = [Batch, seq_len, channel] = [128, 3136, 64]
+        #     # fourth, optionally reshape back to (batch_size, num_channels, height, width)
+        #     if idx != len(self.patch_embeddings) - 1 or (
+        #         idx == len(self.patch_embeddings) - 1 and self.config.reshape_last_stage
+        #     ):
+        #         hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
+
+        for idx, x in enumerate(zip(self.patch_embeddings, self.block, self.layer_norm, self.architecture)):
+            embedding_layer, block_layer, norm_layer, architecture = x
+            for i, val in enumerate(zip(embedding_layer, block_layer, architecture)):
+                embed, blk, arc = val
+                if arc =='conv': # into CNN
+                    hidden_states, height, width = embed(hidden_states) # -> [128, 64, 56, 56], [224], [224]
+                    hidden_states = blk(hidden_states)
+                    # reshape for normalization
+                    # hidden_states = hidden_states.permute(0, 2, 3, 1)
+                    hidden_states = norm_layer(hidden_states.permute(0, 2, 3, 1))
+                    hidden_states = hidden_states.permute(0, 3, 1, 2)
+                elif arc == 'trans':
+                    # hidden_states, height, width = embed(hidden_states) # [128, 64, 56, 56], [224], [224]
+                    # reshape for segformer transformer
+                    batch, channel, height, width = hidden_states.shape
+                    hidden_states = hidden_states.reshape(batch, channel, -1).permute(0, 2, 1)
+                    layer_outputs = blk(hidden_states, height, width, output_attentions)
+                    hidden_states = layer_outputs[0] # 튜플반환이 필요했네, 
+                    if output_attentions:
+                        all_self_attentions = all_self_attentions + (layer_outputs[1],)
+                    hidden_states = norm_layer(hidden_states) # -> [Batch, seq_len, channel] = [128, 3136, 64] 
+                    
+                    # fourth, optionally reshape back to (batch_size, num_channels, height, width)
+                    hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
+
+
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
+            
 
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
@@ -524,8 +770,8 @@ class SegformerModel(SegformerPreTrainedModel):
         self.config = config
 
         # hierarchical Transformer encoder
-        self.encoder = nextvit_small(config)
-        # self.encoder = SegformerEncoder(config)
+        # self.encoder = nextvit_small(config)
+        self.encoder = SegformerEncoder(config)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -942,6 +1188,44 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+class NCBForSegformer(nn.Module):
+    """
+    Next Convolution Block
+    """
+    def __init__(self, hidden_size, drop_path=0,
+                 drop=0, head_dim=32, mlp_ratio=3):
+        super(NCBForSegformer, self).__init__()
+        self.hidden_size = hidden_size
+        norm_layer = partial(nn.BatchNorm2d, eps=NORM_EPS)
+        assert hidden_size % head_dim == 0
+
+        # self.patch_embed = NextPatchEmbed(in_channels, hidden_size, stride)
+        self.mhca = MHCA(hidden_size, head_dim)
+        self.attention_drop_path = DropPath(drop_path)
+
+        self.norm = norm_layer(hidden_size)
+        self.mlp = Mlp(hidden_size, mlp_ratio=mlp_ratio, drop=drop, bias=True)
+        self.mlp_drop_path = DropPath(drop_path)
+        self.is_bn_merged = False
+
+    def merge_bn(self):
+        if not self.is_bn_merged:
+            self.mlp.merge_bn(self.norm)
+            self.is_bn_merged = True
+
+    def forward(self, x, output_attentions=False): 
+        # x = self.patch_embed(x)
+        x = x + self.attention_drop_path(self.mhca(x))
+        if not torch.onnx.is_in_onnx_export() and not self.is_bn_merged:
+            out = self.norm(x)
+        else:
+            out = x
+        x = x + self.mlp_drop_path(self.mlp(out))
+        # batch_size, channel, height, width = x.shape
+        # x = (x.reshape(batch_size, channel, -1).permute(0, 2, 1),) # assume output_attentions=False
+        return x
+
+
 
 class NCB(nn.Module):
     """
@@ -1120,24 +1404,24 @@ class NextViT(nn.Module):
         self.with_extra_norm = with_extra_norm
         self.norm_eval = norm_eval
 
-        # # for Next option
-        # self.stage_out_channels = [[96] * (depths[0]),
-        #                            [192] * (depths[1] - 1) + [256],
-        #                            [384, 384, 384, 384, 512] * (depths[2] // 5),
-        #                            [768] * (depths[3] - 1) + [1024]]
+        # for Next option
+        self.stage_out_channels = [[96] * (depths[0]),
+                                   [192] * (depths[1] - 1) + [256],
+                                   [384, 384, 384, 384, 512] * (depths[2] // 5),
+                                   [768] * (depths[3] - 1) + [1024]]
         
-        # for segformer option
-        self.stage_out_channels = [[64] * (depths[0]),
-                                   [128] * (depths[1] - 1) + [128],
-                                   [320, 320, 320, 320, 320] * (depths[2] // 5),
-                                   [512] * (depths[3] - 1) + [512]]
+        # # for segformer option
+        # self.stage_out_channels = [[64] * (depths[0]),
+        #                            [128] * (depths[1] - 1) + [128],
+        #                            [320, 320, 320, 320, 320] * (depths[2] // 5),
+        #                            [512] * (depths[3] - 1) + [512]]
 
         # Next Hybrid Strategy
         self.stage_block_types = [[NCB] * depths[0],
                                   [NCB] * (depths[1] - 1) + [NTB],
                                   [NCB, NCB, NCB, NCB, NTB] * (depths[2] // 5),
                                   [NCB] * (depths[3] - 1) + [NTB]]
-
+        
         self.stem = nn.Sequential(
             ConvBNReLU(3, stem_chs[0], kernel_size=3, stride=2),
             ConvBNReLU(stem_chs[0], stem_chs[1], kernel_size=3, stride=1),
