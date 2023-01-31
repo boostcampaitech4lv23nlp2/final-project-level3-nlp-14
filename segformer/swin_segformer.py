@@ -52,45 +52,25 @@ class WMSA(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads, qk_scale=None, attn_drop=0., proj_drop=0.):
 
         super().__init__()
         self.dim = dim
-        self.window_size = window_size  # Wh, Ww
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
-        # define a parameter table of relative position bias
-        self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
-
-        # get pair-wise relative position index for each token inside the window
-        coords_h = torch.arange(self.window_size[0])
-        coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
-        coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-        relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
-        relative_coords[:, :, 1] += self.window_size[1] - 1
-        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
-        self.register_buffer("relative_position_index", relative_position_index)
-
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias=False)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, output_attentions=False):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
-            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -99,11 +79,6 @@ class WMSA(nn.Module):
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
         
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0)
-
         attn = self.softmax(attn)
 
         attn = self.attn_drop(attn)
@@ -118,28 +93,21 @@ class WMSA(nn.Module):
 
 
 class WindowAttention(nn.Module):
-    def __init__(self, config, hidden_size, num_attention_heads, input_resolution, sequence_reduction_ratio):
+    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__()
         self.dim = hidden_size
-        self.input_resolution = input_resolution    # TODO: height, width 어떻게 넣어줄 것인지 판단.
         self.num_heads = num_attention_heads
         self.window_size = 7  # TODO: window size 어떻게 설정 할 것인지 판단.
         # self.mlp_ratio = mlp_ratio
-        # TODO: reduction 처리해야 하는지 판단.
-
-        if min(self.input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
-            self.window_size = min(self.input_resolution)
 
         self.attn = WMSA(
                 dim=hidden_size, 
-                window_size=to_2tuple(self.window_size), 
                 num_heads=num_attention_heads,
-                qkv_bias=True, # TODO: Bias 사용 여부 판단.
                 qk_scale=None, # TODO: scale 사용 여부 판단
                 attn_drop=config.attention_probs_dropout_prob, 
                 proj_drop=config.hidden_dropout_prob
             )
+
         self.sr_ratio = sequence_reduction_ratio
         if sequence_reduction_ratio > 1:
             self.sr = nn.Conv2d(
@@ -149,35 +117,24 @@ class WindowAttention(nn.Module):
         # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 
-    # def prune_heads(self, heads):
-    #     # TODO: prune 은 다른데서 (일괄적으로?) 부르는 함수 같음
-    #     #       어떻게 처리할지, 혹은 처리하지 않아도 되는지, 어디서 부르는지 확인 및 판단.
-    #     if len(heads) == 0:
-    #         return
-    #     heads, index = find_pruneable_heads_and_indices(
-    #         heads, self.self.num_attention_heads, self.self.attention_head_size, self.pruned_heads
-    #     )
-
-    #     # Prune linear layers
-    #     self.self.query = prune_linear_layer(self.self.query, index)
-    #     self.self.key = prune_linear_layer(self.self.key, index)
-    #     self.self.value = prune_linear_layer(self.self.value, index)
-    #     self.output.dense = prune_linear_layer(self.output.dense, index, dim=1)
-
-    #     # Update hyper params and store pruned heads
-    #     self.self.num_attention_heads = self.self.num_attention_heads - len(heads)
-    #     self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
-    #     self.pruned_heads = self.pruned_heads.union(heads)
-
     def forward(self, hidden_states, height, width, output_attentions=False):
+        
+        if self.sr_ratio > 1:
+            batch_size, seq_len, num_channels = hidden_states.shape
+            # Reshape to (batch_size, num_channels, height, width)
+            hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+            # Apply sequence reduction
+            hidden_states = self.sr(hidden_states)
+            # Reshape back to (batch_size, seq_len, num_channels)
+            hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+            hidden_states = self.layer_norm(hidden_states)
 
         B, L, C = hidden_states.shape
-        assert L == height * width, "input feature has wrong size"
+        # assert L == height * width, "input feature has wrong size"
 
-        H, W = (height, width)
         x = hidden_states
         
-        x = x.view(B, H, W, C)
+        x = x.view(B, height, width, C)
 
         # partition windows
         x_windows = window_partition(x, self.window_size)  # nW*B, window_size, window_size, C
