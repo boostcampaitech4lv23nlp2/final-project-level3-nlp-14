@@ -19,8 +19,10 @@ import math
 from typing import Optional, Tuple, Union
 
 import torch
+from torch import Tensor
 import torch.utils.checkpoint
 from torch import nn
+import torch.nn.functional as F
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from transformers.activations import ACT2FN
@@ -34,6 +36,11 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
+
+from mmcv.cnn import ConvModule, NonLocal2d, DepthwiseSeparableConvModule
+from einops import rearrange
+from timm.models.layers import to_2tuple
+
 from .configuration_segformer import SegformerConfig
 
 
@@ -347,10 +354,10 @@ class DestMixFFN(nn.Module):
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
-
+"""
 class SegformerLayer(nn.Module):
-    """This corresponds to the Block class in the original implementation."""
-
+    #This corresponds to the Block class in the original implementation.
+    
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
@@ -365,7 +372,7 @@ class SegformerLayer(nn.Module):
         mlp_hidden_size = int(hidden_size * mlp_ratio)
         #self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
         self.mlp = DestMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
-
+        
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_attention_outputs = self.attention(
             self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
@@ -386,6 +393,52 @@ class SegformerLayer(nn.Module):
         # second residual connection (with stochastic depth)
         mlp_output = self.drop_path(mlp_output)
         layer_output = mlp_output + hidden_states
+
+        outputs = (layer_output,) + outputs
+
+        return outputs
+
+"""
+class SegformerLayer(nn.Module):
+    #This corresponds to the Block class in the original implementation.
+    
+    def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
+        super().__init__()
+        self.attention = SegformerAttention(
+            config,
+            hidden_size=hidden_size,
+            num_attention_heads=num_attention_heads,
+            sequence_reduction_ratio=sequence_reduction_ratio,
+        )
+        self.layer_norm_11 = nn.LayerNorm(hidden_size)
+        self.layer_norm_12 = nn.LayerNorm(hidden_size)
+        self.drop_path = SegformerDropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        mlp_hidden_size = int(hidden_size * mlp_ratio)
+        #self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.mlp = DestMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
+        self.layer_norm_21 = nn.LayerNorm(hidden_size)
+        self.layer_norm_22 = nn.LayerNorm(hidden_size)
+        
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        self_attention_outputs = self.attention(
+            hidden_states,
+            height,
+            width,
+            output_attentions=output_attentions,
+        )
+
+        attention_output = self_attention_outputs[0]
+        outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
+
+        # first residual connection (with stochastic depth)
+        attention_output = self.drop_path(self.layer_norm_11(attention_output + hidden_states))
+        hidden_states = self.layer_norm_12(attention_output + hidden_states)
+
+        mlp_output = self.mlp(hidden_states, height, width)
+
+        # second residual connection (with stochastic depth)
+        mlp_output = self.drop_path(self.layer_norm_21(mlp_output + hidden_states))
+        layer_output = self.layer_norm_22(mlp_output + hidden_states)
 
         outputs = (layer_output,) + outputs
 
@@ -700,15 +753,16 @@ class SegformerForImageClassification(SegformerPreTrainedModel):
             attentions=outputs.attentions,
         )
 
-
 class SegformerMLP(nn.Module):
     """
     Linear Embedding.
     """
-
-    def __init__(self, config: SegformerConfig, input_dim):
+    def __init__(self, config: SegformerConfig, input_dim, embed_dim=None):
         super().__init__()
-        self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
+        if embed_dim is None:
+            self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
+        else:
+            self.proj = nn.Linear(input_dim, embed_dim)
 
     def forward(self, hidden_states: torch.Tensor):
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
@@ -783,6 +837,7 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         super().__init__(config)
         self.segformer = SegformerModel(config)
         self.decode_head = SegformerDecodeHead(config)
+        #self.decode_head = LawinDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
