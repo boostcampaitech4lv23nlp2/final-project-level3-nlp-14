@@ -205,8 +205,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=str, default="0,1", help="Select gpu to use")
     parser.add_argument("--lr", type=float, default=6e-5)  # do not modify
-    parser.add_argument("--pretrain", type=str, default="nvidia/mit-b2")
-    parser.add_argument("--save_path", type=str, default="result/")
+    parser.add_argument("--pretrain", type=str, default="/opt/ml/resulthybrid/checkpoint94.pth")
+    parser.add_argument("--save_path", type=str, default="result_hybrid_hamdecoder/")
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=1)  # do not modify
     parser.add_argument("--batch_size", type=int, default=16)
