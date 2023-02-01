@@ -43,6 +43,18 @@ from timm.models.layers import to_2tuple
 
 from .configuration_segformer import SegformerConfig
 
+from .hamburger import HamBurger
+
+from .bricks import (
+    LayerScale,
+    StochasticDepth,
+    DWConv3x3,
+    NormLayer,
+    ConvBNRelu,
+    ConvRelu,
+    resize,
+)
+
 
 logger = logging.get_logger(__name__)
 
@@ -866,6 +878,39 @@ class SegformerDecodeHead(SegformerPreTrainedModel):
         return logits
 
 
+class HamDecoder(nn.Module):
+    """SegNext"""
+
+    def __init__(self, config):
+        super().__init__()
+
+        ham_channels = config.decoder_hidden_size
+
+        self.classifier = nn.Sequential(
+            nn.Dropout2d(p=0.1),
+            nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1),
+        )
+
+        self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
+        self.ham_attn = HamBurger(ham_channels, config)
+        self.align = ConvRelu(ham_channels, ham_channels)
+
+    def forward(self, features):
+
+        features = features[1:]  # drop stage 1 features b/c low level
+        features = [  # 모든 feature를 stage1의 h,w로 resize한다.
+            resize(feature, size=features[-3].shape[2:], mode="bilinear")
+            for feature in features
+        ]
+        hidden_states = torch.cat(features, dim=1)
+
+        hidden_states = self.squeeze(hidden_states)
+        hidden_states = self.ham_attn(hidden_states)
+        hidden_states = self.align(hidden_states)
+        logits = self.classifier(hidden_states)
+
+        return logits
+
 @add_start_docstrings(
     """SegFormer Model transformer with an all-MLP decode head on top e.g. for ADE20k, CityScapes.""",
     SEGFORMER_START_DOCSTRING,
@@ -874,9 +919,9 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.segformer = SegformerModel(config)
-        self.decode_head = SegformerDecodeHead(config)
+        #self.decode_head = SegformerDecodeHead(config)
         #self.decode_head = LawinDecodeHead(config)
-
+        self.decode_head = HamDecoder(config)
         # Initialize weights and apply final processing
         self.post_init()
 

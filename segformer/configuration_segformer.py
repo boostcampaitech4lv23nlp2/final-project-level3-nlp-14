@@ -131,6 +131,18 @@ class SegformerConfig(PretrainedConfig):
         norm_cfg=dict(type='BN', requires_grad=True),
         align_corners=False,
         decoder_params=dict(mixing = True, in_dim = 512, embed_dim = 512, use_scale = True, proj_type = 'conv', reduction = 2),
+        #from here -> hamdecoder 
+        norm_type=dict(type="batch_norm", requires_grad=True),
+        put_cheese=False,  # True,
+        MD_D=512,
+        MD_S=1,
+        MD_R=64,
+        SPATIAL=True,
+        INV_T=1,
+        Eta=0.9,
+        RAND_INIT=True,
+        TRAIN_STEPS=6,
+        EVAL_STEPS=6,
         **kwargs
     ):
         super().__init__(**kwargs)
