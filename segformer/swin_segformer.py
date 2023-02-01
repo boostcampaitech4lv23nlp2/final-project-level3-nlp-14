@@ -151,8 +151,9 @@ class WMSA_reduction(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
+        self.attention_head_size = int(self.dim / self.num_heads)
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias=False)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -192,6 +193,7 @@ class WMSA_reduction(nn.Module):
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
+        attn = attn / math.sqrt(self.num_heads)
 
         attn = self.softmax(attn)
 
@@ -205,21 +207,6 @@ class WMSA_reduction(nn.Module):
 
         return outputs
 
-    def extra_repr(self) -> str:
-        return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}'
-
-    def flops(self, N):
-        # calculate flops for 1 window with token length of N
-        flops = 0
-        # qkv = self.qkv(x)
-        flops += N * self.dim * 3 * self.dim
-        # attn = (q @ k.transpose(-2, -1))
-        flops += self.num_heads * N * (self.dim // self.num_heads) * N
-        #  x = (attn @ v)
-        flops += self.num_heads * N * N * (self.dim // self.num_heads)
-        # x = self.proj(x)
-        flops += N * self.dim * self.dim
-        return flops
 
 class WindowAttention_reduction(nn.Module):
     r""" Swin Transformer Block.
@@ -240,23 +227,13 @@ class WindowAttention_reduction(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
         fused_window_process (bool, optional): If True, use one kernel to fused window shift & window partition for acceleration, similar for the reversed part. Default: False
     """
-    # def __init__(self, config, hidden_size, input_resolution, num_attention_heads, sequence_reduction_ratio):
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
 
-    # def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=0,
-    #              mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-    #              act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-    #              fused_window_process=False):
         super().__init__()
         self.dim = hidden_size
-        # self.input_resolution = input_resolution
         self.num_heads = num_attention_heads
         self.window_size = 7
 
-        # self.mlp_ratio = mlp_ratio
-        # if min(self.input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
-            # self.window_size = min(self.input_resolution)
 
         self.attn = WMSA_reduction(
             hidden_size, num_heads=num_attention_heads, sequence_reduction_ratio=sequence_reduction_ratio,

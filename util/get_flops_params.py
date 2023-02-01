@@ -27,7 +27,7 @@ def main(opt):
         )
     )
     model = model.to(dev)
-    input_vector = torch.randn(1, 3, 512, 512)
+    input_vector = torch.randn(1, 3, 224, 224)
     macs, params = profile(model.cpu(), inputs=(input_vector,))
     print("flops", macs)
     print("params", params)
