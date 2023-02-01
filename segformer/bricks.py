@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
 
-from .decode_head import SynchronizedBatchNorm2d
+# from .decode_head import SynchronizedBatchNorm2d
 
-norm_layer = partial(SynchronizedBatchNorm2d, momentum=float(3e-4))
+# norm_layer = partial(SynchronizedBatchNorm2d, momentum=float(3e-4))
 
 
 class myLayerNorm(nn.Module):
@@ -33,9 +33,9 @@ class NormLayer(nn.Module):
         if norm_type == "batch_norm":
             # print('Adding Batch Norm layer') # for testing
             self.norm = nn.BatchNorm2d(inChannels, eps=1e-5, momentum=float(0.9))
-        elif norm_type == "sync_bn":
-            # print('Adding Sync-Batch Norm layer') # for testing
-            self.norm = norm_layer(inChannels)
+        # elif norm_type == "sync_bn":
+        #     # print('Adding Sync-Batch Norm layer') # for testing
+        #     self.norm = norm_layer(inChannels)
         elif norm_type == "layer_norm":
             # print('Adding Layer Norm layer') # for testing
             self.norm == myLayerNorm(inChannels)

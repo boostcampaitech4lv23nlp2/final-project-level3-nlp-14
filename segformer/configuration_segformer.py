@@ -182,6 +182,19 @@ class SegformerConfig(PretrainedConfig):
         self.align_corners = align_corners
         self.decoder_params = decoder_params
 
+        self.norm_type = norm_type
+        self.put_cheese = put_cheese
+        self.MD_D = MD_D
+        self.MD_S = MD_S
+        self.MD_R = MD_R
+        self.SPATIAL = SPATIAL
+        self.INV_T = INV_T
+        self.Eta = Eta
+        self.RAND_INIT = RAND_INIT
+        self.TRAIN_STEPS = TRAIN_STEPS
+        self.EVAL_STEPS = EVAL_STEPS
+
+
 
 class SegformerOnnxConfig(OnnxConfig):
 
