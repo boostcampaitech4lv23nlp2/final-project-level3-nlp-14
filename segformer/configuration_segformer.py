@@ -120,7 +120,7 @@ class SegformerConfig(PretrainedConfig):
         initializer_range=0.02,
         drop_path_rate=0.1,
         layer_norm_eps=1e-6,
-        decoder_hidden_size=768, #if lawin, 512
+        decoder_hidden_size=768, #SegformerDecodeHead
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
         linear=True,
