@@ -19,9 +19,8 @@ import math
 from typing import Optional, Tuple, Union
 
 import torch
-from torch import Tensor
 import torch.utils.checkpoint
-from torch import nn
+from torch import nn, Tensor
 import torch.nn.functional as F
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
@@ -37,9 +36,11 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+#v2 사용시 필요없는 라이브러리. 주석 처리 필요.
 from mmcv.cnn import ConvModule, NonLocal2d, DepthwiseSeparableConvModule
-from einops import rearrange
 from timm.models.layers import to_2tuple
+
+from einops import rearrange
 
 from .configuration_segformer import SegformerConfig
 
@@ -354,7 +355,7 @@ class DestMixFFN(nn.Module):
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
-"""
+    
 class SegformerLayer(nn.Module):
     #This corresponds to the Block class in the original implementation.
     
@@ -443,7 +444,7 @@ class SegformerLayer(nn.Module):
         outputs = (layer_output,) + outputs
 
         return outputs
-
+"""
 
 class SegformerEncoder(nn.Module):
     def __init__(self, config):
@@ -837,7 +838,6 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         super().__init__(config)
         self.segformer = SegformerModel(config)
         self.decode_head = SegformerDecodeHead(config)
-        #self.decode_head = LawinDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
