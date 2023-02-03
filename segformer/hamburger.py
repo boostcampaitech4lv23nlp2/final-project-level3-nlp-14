@@ -134,9 +134,9 @@ class NMF2D(_MatrixDecomposition2DBase):
 
     def _build_bases(self, B, S, D, R):
 
-        bases = torch.rand((B * S, D, R)).to(#"cpu")  # get_flops_params할 때 사용
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        bases = torch.rand((B * S, D, R)).to("cpu")  # get_flops_params할 때 사용
+        #     "cuda" if torch.cuda.is_available() else "cpu"
+        # )
         bases = F.normalize(bases, dim=1)  # column wise normalization i.e HW dim
 
         return bases

@@ -107,13 +107,14 @@ class SegformerConfig(PretrainedConfig):
         num_channels=3,
         num_encoder_blocks=4,
         # depths=[3, 4, 6, 3],
-        depths=[1, 2, 6, 2],
+        depths=[1, 2, 3, 2],
         sr_ratios=[8, 4, 2, 1],
         hidden_sizes=[64, 128, 320, 512], # for segformer option
         # hidden_sizes=[96, 256, 512, 1024], # for Next option
         patch_sizes=[7, 3, 3, 3],
         strides=[4, 2, 2, 2],
-        num_attention_heads=[1, 2, 5, 8],
+        # num_attention_heads=[1, 2, 5, 8],
+        num_attention_heads=[1, 2, 4, 8], # for efficient
         mlp_ratios=[4, 4, 4, 4],
         hidden_act="relu",
         hidden_dropout_prob=0.0,
