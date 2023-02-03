@@ -45,11 +45,6 @@ from .configuration_segformer import SegformerConfig
 
 
 from .bricks import (
-    LayerScale,
-    StochasticDepth,
-    DWConv3x3,
-    NormLayer,
-    ConvBNRelu,
     ConvRelu,
     resize,
 )
@@ -834,6 +829,7 @@ class SegformerMLP(nn.Module):
     """
     Linear Embedding.
     """
+
     def __init__(self, config: SegformerConfig, input_dim, embed_dim=None):
         super().__init__()
         if embed_dim is None:
@@ -933,7 +929,7 @@ class HamDecoder(nn.Module):
 
         self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
         self.ham_attn = HamBurger(ham_channels, config)
-        self.align = ConvRelu(ham_channels, ham_channels)
+        # self.align = ConvRelu(ham_channels, ham_channels)
 
     def forward(self, features):
 
@@ -946,7 +942,7 @@ class HamDecoder(nn.Module):
 
         hidden_states = self.squeeze(hidden_states)
         hidden_states = self.ham_attn(hidden_states)
-        hidden_states = self.align(hidden_states)
+        # hidden_states = self.align(hidden_states)
         logits = self.classifier(hidden_states)
 
         return logits
