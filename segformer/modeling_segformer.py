@@ -325,7 +325,7 @@ class SegformerEfficientSelfAttentionFromFalcon(nn.Module): # from falcon
         else:
             self.pool = nn.AdaptiveAvgPool2d(7)
             self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
-            self.layer_norm = nn.BatchNorm1d(hidden_size)
+            self.layer_norm = nn.LayerNorm(hidden_size)
             self.act = nn.GELU()
             
     def transpose_for_scores(self, hidden_states):
@@ -394,7 +394,7 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
+        # self.output = SegformerSelfOutput(config, hidden_size=hidden_size)
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -418,8 +418,9 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        # attention_output = self.output(self_outputs[0], hidden_states)
+        # outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
+        outputs = self_outputs
         return outputs
 
 
@@ -504,7 +505,7 @@ class SegformerLayer(nn.Module):
     def __init__(self, config, hidden_size, num_attention_heads, drop_path, sequence_reduction_ratio, mlp_ratio):
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
-        self.attention = SegformerEfficientSelfAttention(
+        self.attention = SegformerEfficientSelfAttentionFromFalcon(
             config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
@@ -637,7 +638,7 @@ class SegformerEncoder(nn.Module):
 
         self.block = nn.ModuleList(blocks)
 
-        # # Layer norms
+        # Layer norms
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(config.hidden_sizes[i]) for i in range(config.num_encoder_blocks)]
         )
@@ -686,9 +687,8 @@ class SegformerEncoder(nn.Module):
                     hidden_states, height, width = embed(hidden_states) # -> [128, 64, 56, 56], [224], [224]
                     hidden_states = blk(hidden_states)
                     # reshape for normalization
-                    # hidden_states = hidden_states.permute(0, 2, 3, 1)
-                    hidden_states = norm_layer(hidden_states.permute(0, 2, 3, 1))
-                    hidden_states = hidden_states.permute(0, 3, 1, 2)
+                    # hidden_states = norm_layer(hidden_states.permute(0, 2, 3, 1))
+                    # hidden_states = hidden_states.permute(0, 3, 1, 2)
                 elif arc == 'trans':
                     # hidden_states, height, width = embed(hidden_states) # [128, 64, 56, 56], [224], [224]
                     # reshape for segformer transformer
@@ -703,11 +703,9 @@ class SegformerEncoder(nn.Module):
                     # fourth, optionally reshape back to (batch_size, num_channels, height, width)
                     hidden_states = hidden_states.reshape(batch_size, height, width, -1).permute(0, 3, 1, 2).contiguous()
 
-
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
             
-
         if not return_dict:
             return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
         return BaseModelOutput(
@@ -1023,7 +1021,7 @@ class HamDecoder(nn.Module):
 
         self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
         self.ham_attn = HamBurger(ham_channels, config)
-        self.align = ConvRelu(ham_channels, ham_channels)
+        # self.align = ConvRelu(ham_channels, ham_channels)
 
     def forward(self, features):
 
@@ -1036,7 +1034,7 @@ class HamDecoder(nn.Module):
 
         hidden_states = self.squeeze(hidden_states)
         hidden_states = self.ham_attn(hidden_states)
-        hidden_states = self.align(hidden_states)
+        # hidden_states = self.align(hidden_states)
         logits = self.classifier(hidden_states)
 
         return logits

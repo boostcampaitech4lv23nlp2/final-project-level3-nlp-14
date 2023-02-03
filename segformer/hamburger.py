@@ -185,12 +185,12 @@ class HamBurger(nn.Module):
         C = config.MD_D
 
         # add Relu at end as NMF works of non-negative only
-        self.lower_bread = nn.Sequential(
-            nn.Conv2d(inChannels, C, 1), nn.ReLU(inplace=True)
-        )
+        # self.lower_bread = nn.Sequential(
+        #     nn.Conv2d(inChannels, C, 1), nn.ReLU(inplace=True)
+        # )
         self.ham = NMF2D(config)
         self.cheese = ConvBNRelu(C, C) if config.put_cheese else None
-        self.upper_bread = nn.Conv2d(C, inChannels, 1, bias=False)
+        # self.upper_bread = nn.Conv2d(C, inChannels, 1, bias=False)
 
     #     self.init_weights()
 
@@ -204,13 +204,13 @@ class HamBurger(nn.Module):
     def forward(self, x):
         skip = x.clone()
 
-        x = self.lower_bread(x)
+        # x = self.lower_bread(x)
         x = self.ham(x)
 
         if self.put_cheese:
             x = self.cheese(x)
 
-        x = self.upper_bread(x)
+        # x = self.upper_bread(x)
         x = F.relu(x + skip, inplace=True)
 
         return x
