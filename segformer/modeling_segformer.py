@@ -291,10 +291,111 @@ class SegformerEfficientSelfAttention(nn.Module):
         outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
 
         return outputs
-
-class SegformerEfficientSelfAttentionFromFalcon(nn.Module): # from falcon
+    
+class SegformerEfficientSelfAttentionFromFalcon(nn.Module):
     """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
     paper](https://arxiv.org/abs/2102.12122)."""
+
+    def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_attention_heads = num_attention_heads
+        
+        if self.hidden_size % self.num_attention_heads != 0:
+            raise ValueError(
+                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
+                f"heads ({self.num_attention_heads})"
+            )
+        #efficient attn
+        
+        self.key_channel = 64
+        self.value_channel = 32
+        self.head_key_channel = self.key_channel // self.num_attention_heads
+        self.head_value_channel = self.value_channel // self.num_attention_heads
+        if self.key_channel % self.num_attention_heads != 0 or self.value_channel % self.num_attention_heads != 0:
+            raise ValueError(
+                f"key channel num or value channel num cant divided by attention head num"
+            )
+        self.query = nn.Conv2d(hidden_size, self.key_channel, 1)
+        self.key = nn.Conv2d(hidden_size, self.key_channel, 1)
+        self.value = nn.Conv2d(hidden_size, self.value_channel, 1)
+        self.reprojection = nn.Conv2d(self.value_channel, hidden_size, 1)
+        self.linear = config.linear
+        self.sr_ratio = sequence_reduction_ratio
+        
+        if not self.linear:
+            if sequence_reduction_ratio > 1:
+                self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=sequence_reduction_ratio, stride=sequence_reduction_ratio)
+                self.layer_norm = nn.LayerNorm(hidden_size)
+        else:
+            self.pooloutput_size = 7
+            self.pool = nn.AdaptiveAvgPool2d(self.pooloutput_size)
+            self.sr = nn.Conv2d(hidden_size, hidden_size, kernel_size=1, stride=1)
+            self.layer_norm = nn.LayerNorm(hidden_size)
+            self.act = nn.GELU()
+            
+    def transpose_for_scores(self, hidden_states):
+        new_shape = hidden_states.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        hidden_states = hidden_states.view(new_shape)
+        return hidden_states.permute(0, 2, 1, 3)
+
+    def forward(self, hidden_states, height, width, output_attentions=False):
+        batch_size,_,num_channels = hidden_states.size()
+        hidden_states = rearrange(hidden_states, 'b (h w) c -> b c h w', h = height)
+        original_hidden_states = hidden_states.clone()
+        #batch_size, seq_len, num_channels = hidden_states.shape
+        queries = self.query(hidden_states).reshape(batch_size, self.key_channel, height * width)
+
+        if not self.linear:
+            if self.sr_ratio > 1:
+                hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+                hidden_states = self.sr(hidden_states)
+                hidden_states = hidden_states.reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+                hidden_states = self.layer_norm(hidden_states)
+        else:
+            #hidden_states = hidden_states.permute(0, 2, 1).reshape(batch_size, num_channels, height, width)
+            hidden_states = self.sr(self.pool(hidden_states)).reshape(batch_size, num_channels, -1).permute(0, 2, 1)
+            hidden_states = self.layer_norm(hidden_states)
+            hidden_states = self.act(hidden_states)
+        
+        
+        hidden_states = rearrange(hidden_states, 'b (h w) c -> b c h w', h = self.pooloutput_size)
+        keys = self.key(hidden_states).reshape(batch_size, self.key_channel, self.pooloutput_size ** 2)
+        values = self.value(hidden_states).reshape(batch_size, self.value_channel, self.pooloutput_size ** 2)
+        head_key_channels = self.head_key_channel
+        head_value_channels = self.head_value_channel
+        attended_values = []
+        for i in range(self.num_attention_heads):
+            key = nn.functional.softmax(keys[
+                :,
+                i * head_key_channels: (i + 1) * head_key_channels,
+                :
+            ], dim=2)
+            query = nn.functional.softmax(queries[
+                :,
+                i * head_key_channels: (i + 1) * head_key_channels,
+                :
+            ], dim=1)
+            value = values[
+                :,
+                i * head_value_channels: (i + 1) * head_value_channels,
+                :
+            ]
+            context = key @ value.transpose(1, 2)
+            attended_value = (
+                context.transpose(1, 2) @ query
+            ).reshape(batch_size, head_value_channels, height, width)
+            attended_values.append(attended_value)
+
+        aggregated_values = torch.cat(attended_values, dim=1)
+        reprojected_value = self.reprojection(aggregated_values)
+        attention = reprojected_value + original_hidden_states
+        attention = rearrange(attention, 'b c h w -> b (h w) c')
+        outputs = (attention, )
+
+        return outputs
+"""
+class SegformerEfficientSelfAttentionFromFalcon(nn.Module): # from falcon
 
     def __init__(self, config, hidden_size, num_attention_heads, sequence_reduction_ratio):
         super().__init__()
@@ -371,7 +472,7 @@ class SegformerEfficientSelfAttentionFromFalcon(nn.Module): # from falcon
         outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
 
         return outputs
-
+"""
 
 class SegformerSelfOutput(nn.Module):
     def __init__(self, config, hidden_size):
