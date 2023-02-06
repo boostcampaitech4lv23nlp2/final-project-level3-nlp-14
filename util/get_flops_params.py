@@ -20,22 +20,22 @@ def main(opt):
     label2id = {v: k for k, v in id2label.items()}
 
     ### from scratch training
-    model = SegformerForSemanticSegmentation(
-        SegformerConfig(
-            num_labels=len(id2label),
-            id2label=id2label,
-            label2id=label2id,
-            ignore_mismatched_sizes=True,
-        )
-    )
-    # model = SegNextForSemanticSegmentation(
-    #     SegNextConfig(
+    # model = SegformerForSemanticSegmentation(
+    #     SegformerConfig(
     #         num_labels=len(id2label),
     #         id2label=id2label,
     #         label2id=label2id,
     #         ignore_mismatched_sizes=True,
     #     )
     # )
+    model = SegNextForSemanticSegmentation(
+        SegNextConfig(
+            num_labels=len(id2label),
+            id2label=id2label,
+            label2id=label2id,
+            ignore_mismatched_sizes=True,
+        )
+    )
     model = model.to(dev)
     input_vector = torch.randn(1, 3, 512, 512)
     macs, params = profile(model.cpu(), inputs=(input_vector,))

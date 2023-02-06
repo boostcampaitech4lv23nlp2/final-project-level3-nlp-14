@@ -106,7 +106,7 @@ class SegNextConfig(PretrainedConfig):
         self,
         num_channels=3,  # in_channels
         num_encoder_blocks=4,  # num_stages
-        depths=[3, 3, 12, 3],
+        depths=[3, 4, 6, 3],
         ffn_ratios=[8, 8, 4, 4],
         hidden_sizes=[64, 128, 320, 512],  # embed_dims, decoder, in_channel
         patch_sizes=[7, 3, 3, 3],
@@ -120,7 +120,7 @@ class SegNextConfig(PretrainedConfig):
         initializer_range=0.02,
         drop_path_rate=0.2,
         layer_norm_eps=1e-6,
-        decoder_hidden_size=512,  # dec_outChannels, segformer: 768
+        decoder_hidden_size=768,  # dec_outChannels, segformer: 768
         is_encoder_decoder=False,
         semantic_loss_ignore_index=255,
         norm_type=dict(type="batch_norm", requires_grad=True),
