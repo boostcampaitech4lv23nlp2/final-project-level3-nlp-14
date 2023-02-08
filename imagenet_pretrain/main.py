@@ -21,6 +21,7 @@ from timm.utils import NativeScaler, get_state_dict, ModelEma
 
 sys.path.append("/opt/ml/final-project-level3-nlp-14/")
 from segformer import SegformerForImageClassification, SegformerConfig
+
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from losses import DistillationLoss
@@ -511,7 +512,9 @@ def main(args):
 
     model_without_ddp = model
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.gpu], find_unused_parameters=True
+        )  # segformer는 find_unsed_parameters 없음
         model_without_ddp = model.module
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("number of params:", n_parameters)

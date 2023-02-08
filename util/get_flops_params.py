@@ -17,7 +17,7 @@ def main(opt):
     id2label = {int(k): v for k, v in id2label.items()}
     label2id = {v: k for k, v in id2label.items()}
 
-    ### from scratch training
+    ## from scratch training
     model = SegformerForSemanticSegmentation(
         SegformerConfig(
             num_labels=len(id2label),
