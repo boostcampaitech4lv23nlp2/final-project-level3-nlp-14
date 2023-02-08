@@ -8,6 +8,15 @@
 |  김상혁  | SegFormer의 encoder를 SegNeXt의 MSCAN으로 변경하고 docoder를 SegNeXt의 Hamburger로 변경하는 실험<br>SegFormer의 불필요한 레이어를 제거하고 SegNeXt의 decoder를 경량화하는 실험 |
 |  서재명  | Window Attention(Swin Transformer 참조)로 encoder 경량화 하는 실험 |
 
+
+# 팀 소개
+
+### 
+
+|김광연|김민준|김병준|김상혁|서재명|
+| :-: | :-: | :-: | :-: | :-: |
+|![광연님](https://user-images.githubusercontent.com/59431433/217448461-bb7a37d4-f5d4-418b-a1b9-583b561b5733.png)|![민준님](https://user-images.githubusercontent.com/59431433/217448432-a3d093c4-0145-4846-a775-00650198fc2f.png)|![병준님](https://user-images.githubusercontent.com/59431433/217448424-11666f05-dda6-406d-95e8-47b3bab7c2f6.png)|![상혁2](https://user-images.githubusercontent.com/59431433/217448849-758c8e25-87db-4902-ab06-0aa8c359500c.png)|![재명님](https://user-images.githubusercontent.com/59431433/217448416-b2ba2070-6cfb-4829-a3bd-861f526cb74a.png)|
+
 ### Training
 1. 데이터셋 준비
 [ADE20K](https://groups.csail.mit.edu/vision/datasets/ADE20K/), [Tiny_ImageNet](https://paperswithcode.com/dataset/tiny-imagenet)
