@@ -299,7 +299,6 @@ class SegformerAttention(nn.Module):
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
         )
-        # self.output = SegformerSelfOutput(config, hidden_size=hidden_size) # del segformeroutput
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -328,11 +327,6 @@ class SegformerAttention(nn.Module):
     def forward(self, hidden_states, height, width, output_attentions=False):
         self_outputs = self.self(hidden_states, height, width, output_attentions)
 
-        # attention_output = self.output(self_outputs[0], hidden_states)
-        # outputs = (attention_output,) + self_outputs[
-        #     1:
-        # ]  # add attentions if we output them
-
         outputs = self_outputs
         return outputs
 
@@ -350,29 +344,6 @@ class SegformerDWConv(nn.Module):
         hidden_states = self.dwconv(hidden_states)
         hidden_states = hidden_states.flatten(2).transpose(1, 2)
 
-        return hidden_states
-
-
-class SegformerMixFFN(nn.Module):
-    def __init__(self, config, in_features, hidden_features=None, out_features=None):
-        super().__init__()
-        out_features = out_features or in_features
-        self.dense1 = nn.Linear(in_features, hidden_features)
-        self.dwconv = SegformerDWConv(hidden_features)
-        if isinstance(config.hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.intermediate_act_fn = config.hidden_act
-        self.dense2 = nn.Linear(hidden_features, out_features)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, height, width):
-        hidden_states = self.dense1(hidden_states)
-        hidden_states = self.dwconv(hidden_states, height, width)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.dense2(hidden_states)
-        hidden_states = self.dropout(hidden_states)
         return hidden_states
 
 
@@ -445,7 +416,6 @@ class SegformerLayer(nn.Module):
         )
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
         mlp_hidden_size = int(hidden_size * mlp_ratio)
-        # self.mlp = SegformerMixFFN(config, in_features=hidden_size, hidden_features=mlp_hidden_size)
         self.mlp = DestMixFFN(
             config, in_features=hidden_size, hidden_features=mlp_hidden_size
         )
@@ -843,80 +813,8 @@ class SegformerMLP(nn.Module):
         return hidden_states
 
 
-class SegformerDecodeHead(SegformerPreTrainedModel):
-    def __init__(self, config):
-        super().__init__(config)
-        # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
-        mlps = []
-        for i in range(config.num_encoder_blocks):
-            mlp = SegformerMLP(config, input_dim=config.hidden_sizes[i])
-            mlps.append(mlp)
-        self.linear_c = nn.ModuleList(mlps)
-
-        # the following 3 layers implement the ConvModule of the original implementation
-        self.linear_fuse = nn.Conv2d(
-            in_channels=config.decoder_hidden_size * config.num_encoder_blocks,
-            out_channels=config.decoder_hidden_size,
-            kernel_size=1,
-            bias=False,
-        )
-        self.batch_norm = nn.BatchNorm2d(config.decoder_hidden_size)
-        self.activation = nn.ReLU()
-
-        self.dropout = nn.Dropout(config.classifier_dropout_prob)
-        self.classifier = nn.Conv2d(
-            config.decoder_hidden_size, config.num_labels, kernel_size=1
-        )
-
-        self.config = config
-
-    def forward(self, encoder_hidden_states):
-        batch_size = encoder_hidden_states[-1].shape[0]
-
-        all_hidden_states = ()
-        for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.linear_c):
-            if (
-                self.config.reshape_last_stage is False
-                and encoder_hidden_state.ndim == 3
-            ):
-                height = width = int(math.sqrt(encoder_hidden_state.shape[-1]))
-                encoder_hidden_state = (
-                    encoder_hidden_state.reshape(batch_size, height, width, -1)
-                    .permute(0, 3, 1, 2)
-                    .contiguous()
-                )
-
-            # unify channel dimension
-            height, width = encoder_hidden_state.shape[2], encoder_hidden_state.shape[3]
-            encoder_hidden_state = mlp(encoder_hidden_state)
-            encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
-            encoder_hidden_state = encoder_hidden_state.reshape(
-                batch_size, -1, height, width
-            )
-            # upsample
-            encoder_hidden_state = nn.functional.interpolate(
-                encoder_hidden_state,
-                size=encoder_hidden_states[0].size()[2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-            all_hidden_states += (encoder_hidden_state,)
-
-        hidden_states = self.linear_fuse(torch.cat(all_hidden_states[::-1], dim=1))
-        hidden_states = self.batch_norm(hidden_states)
-        hidden_states = self.activation(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-
-        # logits are of shape (batch_size, num_labels, height/4, width/4)
-        logits = self.classifier(hidden_states)
-
-        return logits
-
-
 # decoder
 class HamDecoder(nn.Module):
-    """SegNext"""
-
     def __init__(self, config):
         super().__init__()
 
@@ -929,7 +827,6 @@ class HamDecoder(nn.Module):
 
         self.squeeze = ConvRelu(sum(config.hidden_sizes[1:]), ham_channels)
         self.ham_attn = HamBurger(ham_channels, config)
-        # self.align = ConvRelu(ham_channels, ham_channels)
 
     def forward(self, features):
 
@@ -942,7 +839,6 @@ class HamDecoder(nn.Module):
 
         hidden_states = self.squeeze(hidden_states)
         hidden_states = self.ham_attn(hidden_states)
-        # hidden_states = self.align(hidden_states)
         logits = self.classifier(hidden_states)
 
         return logits
@@ -957,7 +853,6 @@ class SegformerForSemanticSegmentation(SegformerPreTrainedModel):
         super().__init__(config)
         self.segformer = SegformerModel(config)
         self.decode_head = HamDecoder(config)
-        # self.decode_head = SegformerDecodeHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()

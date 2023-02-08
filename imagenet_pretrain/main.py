@@ -22,8 +22,6 @@ from timm.utils import NativeScaler, get_state_dict, ModelEma
 sys.path.append("/opt/ml/final-project-level3-nlp-14/")
 from segformer import SegformerForImageClassification, SegformerConfig
 
-from segformer.modeling_segnext import SegNextForImageClassification
-from segformer.configuration_segnext import SegNextConfig
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from losses import DistillationLoss
@@ -477,13 +475,6 @@ def main(args):
             # label2id=label2id
         )
     )
-    # model = SegNextForImageClassification(
-    #     SegNextConfig(
-    #         num_labels=args.nb_classes,
-    #         # id2label=id2label,
-    #         # label2id=label2id
-    #     )
-    # )
 
     if args.finetune:
         if args.finetune.startswith("https"):

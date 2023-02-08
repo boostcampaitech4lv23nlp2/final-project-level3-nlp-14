@@ -12,8 +12,6 @@ from util.logger import set_logger
 from util.data import generate_loader
 from util.utils import label_accuracy_score, add_hist
 from segformer import SegformerForSemanticSegmentation, SegformerConfig
-from segformer.modeling_segnext import SegNextForSemanticSegmentation
-from segformer.configuration_segnext import SegNextConfig
 from transformers.optimization import get_polynomial_decay_schedule_with_warmup
 
 
@@ -109,15 +107,6 @@ def main(opt):
                 ignore_mismatched_sizes=True,
             ),
         )
-        # model = SegNextForSemanticSegmentation.from_pretrained(
-        #     dst,
-        #     config=SegNextConfig(
-        #         num_labels=len(id2label),
-        #         id2label=id2label,
-        #         label2id=label2id,
-        #         ignore_mismatched_sizes=True,
-        #     ),
-        # )
     # dir version
     else:
         logging.info("fine-tuning dir")
