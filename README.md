@@ -63,12 +63,12 @@ python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의�
 # 프로젝트 소개
 
 ### 
-![5번](https://user-images.githubusercontent.com/59431433/217443017-fa24917e-f63b-458f-878a-a8d20f21d606.png)
-![6](https://user-images.githubusercontent.com/59431433/217443410-86cf320d-dbf4-4100-ac57-32bb51e59114.png)
-![20](https://user-images.githubusercontent.com/59431433/217443765-e52a506e-a170-4d9d-9c5c-169956d0fadf.png)
-![21](https://user-images.githubusercontent.com/59431433/217443838-6e966b29-a6e4-4e63-8798-7b06e2f25531.png)
-![22](https://user-images.githubusercontent.com/59431433/217443528-748c1104-1a7b-46e5-bb03-56477da58132.png)
-![23](https://user-images.githubusercontent.com/59431433/217443632-e13abfd0-e57e-4244-b1d6-203ed25c9bd1.png)
+![d7ab99c2_1](https://user-images.githubusercontent.com/59431433/217456663-608f0e4d-47e2-4195-a265-72db62a6839f.png)
+![d7ab99c2_2](https://user-images.githubusercontent.com/59431433/217456668-fb28e993-6ca7-41eb-a433-32ee1bcac5c1.png)
+![d7ab99c2_3](https://user-images.githubusercontent.com/59431433/217456669-4a568328-4a85-495e-a95d-233a84e0db75.png)
+![d7ab99c2_4](https://user-images.githubusercontent.com/59431433/217456672-78d11b66-d9a8-460e-88b5-4494921b6b86.png)
+![d7ab99c2_5](https://user-images.githubusercontent.com/59431433/217456674-91051a7f-d581-46c1-a424-0201ce5c1c09.png)
+![d7ab99c2_6](https://user-images.githubusercontent.com/59431433/217456675-6430f896-9a65-4def-a269-97c723cfcde3.png)
 
 ## 주요 참고자료
 
