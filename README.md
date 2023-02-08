@@ -23,7 +23,7 @@ docker build -t notadockerhub/boostcamp:latest -f ./Dockerfile .
 ```
 ### Training
 1. 데이터셋 준비
-[ADE20K](https://drive.google.com/file/d/1cBd9z93CfI6v-fsIHqLc58fVEH2urJyx/view?usp=share_link), [Tiny_ImageNet](https://drive.google.com/file/d/1_u0FdFTRT1oMwkDee4gpKxebeL_4WMpe/view?usp=share_link)
+[ADE20K](https://groups.csail.mit.edu/vision/datasets/ADE20K/), [Tiny_ImageNet](https://paperswithcode.com/dataset/tiny-imagenet)
 ```
 dataset
     |--ADE20K
