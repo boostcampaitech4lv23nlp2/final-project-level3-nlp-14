@@ -88,3 +88,29 @@ python eval.py \ # eval.py 내의 model을 정의하는 코드 수정
 python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의하는 코드 수정
     --data_dir {ADE20K의 path}
 ```
+
+## 주요 참고자료
+
+SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers
+
+Feature Pyramid Networks for Object Detection
+
+Pyramid Vision Transformer: A Versatile Backbone for Dense Prediction without Convolutions
+
+PVTv2: Improved Baselines with Pyramid Vision Transformer
+
+Depth Estimation with Simplified Transformer
+
+SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation
+
+Next-ViT: Next Generation Vision Transformer for Efficient Deployment in Realistic Industrial Scenarios
+
+IS ATTENTION BETTER THAN MATRIX DECOMPOSITION
+
+Efficient Attention: Attention with Linear Complexities
+
+Swin Transformer: Hierarchical Vision Transformer using Shifted Windows
+
+MLP-Mixer: An all-MLP Architecture for Vision
+
+Lawin Transformer: Improving Semantic Segmentation Transformer with Multi-Scale Representations via Large Window Attention
