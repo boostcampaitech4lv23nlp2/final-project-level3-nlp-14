@@ -60,6 +60,9 @@ python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의�
     --data_dir {ADE20K의 path}
 ```
 
+# 프로젝트 소개
+
+### 
 ![5번](https://user-images.githubusercontent.com/59431433/217443017-fa24917e-f63b-458f-878a-a8d20f21d606.png)
 ![6](https://user-images.githubusercontent.com/59431433/217443410-86cf320d-dbf4-4100-ac57-32bb51e59114.png)
 ![20](https://user-images.githubusercontent.com/59431433/217443765-e52a506e-a170-4d9d-9c5c-169956d0fadf.png)
