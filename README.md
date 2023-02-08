@@ -1,26 +1,13 @@
 # Naver_BoostCamp_NOTA Final Project
 
 |  팀원  | 역할 |
-|:--:|:--:|
+|  :---------  | :--------- |
 |  김광연  | Next-Vit 논문을 참하여 인코더에 convolution layer를 활용하여 Hybrid구조로 변경하는 실험 |
 |  김민준  | SegFormer의 Efficient Self Attention의 SRA를 PVTv2의 LSRA로 변경하는 실험,<br>SegFormer의 Mix-FFN에 Batch Normalization, Convolution layer를 추가한 DEST Mix-FFN으로 변경하는 실험<br>SegFormer의 encoder에 Recursive skip-connection을 적용하여 효율적인 학습이 가능하도록 변경하는 실험<br>SegFormer의 Decoder의 표현력을 높이기 위해 LawinASPP를 적용하는 실험 |
 |  김병준  | SegFormer의 Self Attention module을 SegNeXt의 MSCA로 변경하는 실험<br>LSRA에 Efficient Attention을 적용한 LSREA 모듈 설계 |
 |  김상혁  | SegFormer의 encoder를 SegNeXt의 MSCAN으로 변경하고 docoder를 SegNeXt의 Hamburger로 변경하는 실험<br>SegFormer의 불필요한 레이어를 제거하고 SegNeXt의 decoder를 경량화하는 실험 |
 |  서재명  | Window Attention(Swin Transformer 참조)로 encoder 경량화 하는 실험 |
 
-### Installation
-1. 도커 파일 다운로드 후 압축 해제
-
-```bash
-git clone https://github.com/nota-github/Naver_BoostCamp_NOTA.git
-```
-
-2. 모델 환경이 정의된 도커 이미지 생성
-```bash
-cd np_app_segformer
-# 이미지명:태그 = notadockerhub/np_app_segformer:latest
-docker build -t notadockerhub/boostcamp:latest -f ./Dockerfile .
-```
 ### Training
 1. 데이터셋 준비
 [ADE20K](https://groups.csail.mit.edu/vision/datasets/ADE20K/), [Tiny_ImageNet](https://paperswithcode.com/dataset/tiny-imagenet)
@@ -30,15 +17,7 @@ dataset
     |--Tiny_ImageNet
 ```
 
-2. 모델을 구동할 도커 컨테이너 생성하기
-```bash
-docker run --name {container_name} --shm-size={usable memory} -it --gpus all -v /{위 dataset dir의 path}:/root/datasets notadockerhub/boostcamp:latest
-
-# example(dataset/ADEChallengeData2016)
-docker run --name segformer_challenge --shm-size=8g -it --gpus all -v /root/dataset/:/root/datasets notadockerhub/boostcamp:latest
-```
-
-3. 학습 시작
+2. 학습 시작
     - tiny_imagenet Pretraining
     ```bash
     bash dist_train.sh {사용하는 gpu 개수} \
