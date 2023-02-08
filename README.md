@@ -72,26 +72,26 @@ python util/get_flops_params.py \ # get_flops_params.py 내의 model을 정의�
 
 ## 주요 참고자료
 
-SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers
+[SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers](https://arxiv.org/abs/2105.15203)
 
-Feature Pyramid Networks for Object Detection
+[Feature Pyramid Networks for Object Detection](https://arxiv.org/abs/1612.03144)
 
-Pyramid Vision Transformer: A Versatile Backbone for Dense Prediction without Convolutions
+[Pyramid Vision Transformer: A Versatile Backbone for Dense Prediction without Convolutions](https://arxiv.org/abs/2102.12122)
 
-PVTv2: Improved Baselines with Pyramid Vision Transformer
+[PVTv2: Improved Baselines with Pyramid Vision Transformer](https://arxiv.org/abs/2106.13797)
 
-Depth Estimation with Simplified Transformer
+[Depth Estimation with Simplified Transformer](https://arxiv.org/abs/2204.13791)
 
-SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation
+[SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation](https://arxiv.org/abs/2209.08575)
 
-Next-ViT: Next Generation Vision Transformer for Efficient Deployment in Realistic Industrial Scenarios
+[Next-ViT: Next Generation Vision Transformer for Efficient Deployment in Realistic Industrial Scenarios](https://arxiv.org/abs/2207.05501)
 
-IS ATTENTION BETTER THAN MATRIX DECOMPOSITION
+[IS ATTENTION BETTER THAN MATRIX DECOMPOSITION](https://arxiv.org/abs/2109.04553)
 
-Efficient Attention: Attention with Linear Complexities
+[Efficient Attention: Attention with Linear Complexities](https://arxiv.org/abs/1812.01243)
 
-Swin Transformer: Hierarchical Vision Transformer using Shifted Windows
+[Swin Transformer: Hierarchical Vision Transformer using Shifted Windows](https://arxiv.org/abs/2103.14030)
 
-MLP-Mixer: An all-MLP Architecture for Vision
+[MLP-Mixer: An all-MLP Architecture for Vision](https://arxiv.org/abs/2105.01601)
 
-Lawin Transformer: Improving Semantic Segmentation Transformer with Multi-Scale Representations via Large Window Attention
+[Lawin Transformer: Improving Semantic Segmentation Transformer with Multi-Scale Representations via Large Window Attention](https://arxiv.org/abs/2201.01615)
