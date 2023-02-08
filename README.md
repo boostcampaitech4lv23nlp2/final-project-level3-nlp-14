@@ -64,14 +64,6 @@ docker run --name segformer_challenge --shm-size=8g -it --gpus all -v /root/data
         --batch_size {batch size} # default=16
     ```
 
-### 모델 수정
-
-1. segformer 모델 import 부분 수정(필요시)
-- [main.py 22th line](https://github.com/nota-github/Naver_BoostCamp_NOTA/blob/main/imagenet_pretrain/main.py#L22) 
-- [main.py 256th line](https://github.com/nota-github/Naver_BoostCamp_NOTA/blob/main/imagenet_pretrain/main.py#L256)
-
-
-
 ### Evaluation & FLOPs, 파라미터 개수 확인
 - evaluate 수행
 
