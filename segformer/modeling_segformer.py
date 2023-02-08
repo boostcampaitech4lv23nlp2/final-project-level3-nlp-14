@@ -276,18 +276,6 @@ class SegformerEfficientSelfAttention(nn.Module):
         return outputs
 
 
-class SegformerSelfOutput(nn.Module):
-    def __init__(self, config, hidden_size):
-        super().__init__()
-        self.dense = nn.Linear(hidden_size, hidden_size)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        return hidden_states
-
-
 class SegformerAttention(nn.Module):
     def __init__(
         self, config, hidden_size, num_attention_heads, sequence_reduction_ratio
@@ -793,24 +781,6 @@ class SegformerForImageClassification(SegformerPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
-
-class SegformerMLP(nn.Module):
-    """
-    Linear Embedding.
-    """
-
-    def __init__(self, config: SegformerConfig, input_dim, embed_dim=None):
-        super().__init__()
-        if embed_dim is None:
-            self.proj = nn.Linear(input_dim, config.decoder_hidden_size)
-        else:
-            self.proj = nn.Linear(input_dim, embed_dim)
-
-    def forward(self, hidden_states: torch.Tensor):
-        hidden_states = hidden_states.flatten(2).transpose(1, 2)
-        hidden_states = self.proj(hidden_states)
-        return hidden_states
 
 
 # decoder
