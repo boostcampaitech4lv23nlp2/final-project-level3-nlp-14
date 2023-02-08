@@ -23,7 +23,6 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
-from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutput,
     ImageClassifierOutput,
