@@ -1,7 +1,7 @@
 # Naver_BoostCamp_NOTA Final Project
 
 |  팀원  | 역할 |
-|  :---------  | :--------- |
+|  :---------:  | :--------- |
 |  김광연  | Next-Vit 논문을 참하여 인코더에 convolution layer를 활용하여 Hybrid구조로 변경하는 실험 |
 |  김민준  | SegFormer의 Efficient Self Attention의 SRA를 PVTv2의 LSRA로 변경하는 실험,<br>SegFormer의 Mix-FFN에 Batch Normalization, Convolution layer를 추가한 DEST Mix-FFN으로 변경하는 실험<br>SegFormer의 encoder에 Recursive skip-connection을 적용하여 효율적인 학습이 가능하도록 변경하는 실험<br>SegFormer의 Decoder의 표현력을 높이기 위해 LawinASPP를 적용하는 실험 |
 |  김병준  | SegFormer의 Self Attention module을 SegNeXt의 MSCA로 변경하는 실험<br>LSRA에 Efficient Attention을 적용한 LSREA 모듈 설계 |
